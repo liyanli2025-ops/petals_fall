@@ -1,0 +1,79 @@
+---
+description: 
+alwaysApply: true
+enabled: true
+updatedAt: 2026-03-17T06:32:57.225Z
+provider: 
+---
+
+# 禁止使用外部域名
+
+## 规则说明
+
+在编写 H5 页面代码时，**禁止引用任何外部域名**的资源或链接。所有资源必须使用白名单域名或相对路径。
+
+## 白名单域名
+
+以下域名属于公司自有或合作方域名，允许使用：
+
+- `*.qq.com`（腾讯自有域名）
+- `*.gtimg.com`（腾讯 CDN 域名）
+- `*.tencent.com`（腾讯域名）
+- `*.myqcloud.com`（腾讯云）
+- `*.qpic.cn`（腾讯图片）
+- `*.qlogo.cn`（腾讯头像）
+- `*.qcloud.com`（腾讯云）
+- `*.cdn-go.cn`（CDN）
+- `*.tencentcs.com`（腾讯云存储）
+
+## 禁止行为
+
+1. **禁止在 `<a href>` 中使用外部域名链接**
+   ```html
+   <!-- ❌ 错误 -->
+   <a href="https://example.com/page">点击跳转</a>
+   <a href="https://external-site.org">外部链接</a>
+
+   <!-- ✅ 正确 -->
+   <a href="https://news.qq.com/page">腾讯新闻</a>
+   <a href="./other-page.html">相对路径</a>
+   ```
+
+2. **禁止引用外部域名的 JS/CSS/图片等资源**
+   ```html
+   <!-- ❌ 错误 -->
+   <script src="https://cdn.jsdelivr.net/npm/library.js"></script>
+   <link href="https://fonts.googleapis.com/css2?family=Roboto" rel="stylesheet">
+   <img src="https://external-cdn.com/image.png">
+
+   <!-- ✅ 正确 -->
+   <script src="https://mat1.gtimg.com/qqcdn/js/library.js"></script>
+   <img src="./assets/image.png">
+   ```
+
+3. **禁止在 JS 中使用外部域名进行跳转**
+   ```javascript
+   // ❌ 错误
+   window.open('https://external-site.com/page');
+   location.href = 'https://third-party.org/redirect';
+
+   // ✅ 正确
+   window.open('https://news.qq.com/article');
+   ```
+
+4. **禁止在 CSS 中引用外部域名资源**
+   ```css
+   /* ❌ 错误 */
+   background-image: url('https://external-cdn.com/bg.png');
+   @import url('https://fonts.googleapis.com/css2?family=Noto+Sans');
+
+   /* ✅ 正确 */
+   background-image: url('./assets/bg.png');
+   background-image: url('https://mat1.gtimg.com/qqcdn/images/bg.png');
+   ```
+
+## 处理建议
+
+- 如需使用第三方库，应先下载到本地再通过相对路径引用，或上传到腾讯 CDN（`mat1.gtimg.com`）
+- 如需使用外部字体，应替换为 SDK 提供的 `loadFont` API 加载白名单 CDN 字体
+- 所有图片资源应上传到腾讯图片 CDN 后使用

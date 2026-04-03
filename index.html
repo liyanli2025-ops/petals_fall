@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+  <title>花瓣雨 · AR 全息</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- 启动引导页 -->
+  <div id="landing" class="landing">
+    <div class="landing-content">
+      <div class="landing-icon">🌸</div>
+      <h1 class="landing-title">花瓣雨</h1>
+      <p class="landing-subtitle">AR 全息花瓣体验</p>
+      <p class="landing-desc">开启摄像头，沉浸在漫天花瓣之中<br>转动设备，感受 360° 环绕花海</p>
+      <button id="btn-start" class="btn-start">
+        <span class="btn-icon">✨</span>
+        <span>开始体验</span>
+      </button>
+      <p class="landing-tip">需要授权摄像头和陀螺仪权限</p>
+      <p id="debug-info" class="debug-info"></p>
+    </div>
+    <div class="landing-petals" id="landing-petals"></div>
+  </div>
+
+  <!-- 主场景 — 多层架构实现景深+人物遮挡 -->
+  <div id="scene" class="scene hidden">
+    <!-- 层级从后到前：
+      1. 摄像头视频 / 降级背景
+      2. 远景花瓣层（轻微模糊）
+      3. 中景花瓣层（清晰焦点）
+      4. 人物遮罩层（人体轮廓覆盖在花瓣之上）
+      5. 近景花瓣层（强模糊，在人物前面）
+      6. UI 控制层
+    -->
+    <video id="camera-video" autoplay playsinline muted></video>
+    <div id="fallback-bg" class="fallback-bg hidden"></div>
+
+    <!-- 远景花瓣 -->
+    <canvas id="canvas-far" class="petal-layer layer-far"></canvas>
+    <!-- 中景花瓣 -->
+    <canvas id="canvas-mid" class="petal-layer layer-mid"></canvas>
+    <!-- 人物遮罩（摄像头画面中人物部分的复制，遮挡中景+远景花瓣） -->
+    <canvas id="canvas-person" class="person-layer"></canvas>
+    <!-- 近景花瓣（CSS blur 模糊） -->
+    <canvas id="canvas-near" class="petal-layer layer-near"></canvas>
+
+    <!-- UI -->
+    <div id="ui-overlay" class="ui-overlay">
+      <button id="btn-switch-camera" class="ui-btn" title="切换摄像头">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M20 16V7a2 2 0 00-2-2h-3l-2-2H11L9 5H6a2 2 0 00-2 2v9m16 0H4m16 0l-4-4m-12 4l4-4"/>
+        </svg>
+      </button>
+      <button id="btn-toggle-camera" class="ui-btn" title="关闭/开启摄像头">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
+          <circle cx="12" cy="13" r="4"/>
+        </svg>
+      </button>
+      <!-- 拍照按钮 -->
+      <button id="btn-photo" class="ui-btn ui-btn-capture" title="拍照">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <circle cx="12" cy="12" r="4" fill="currentColor"/>
+        </svg>
+      </button>
+      <!-- 录像按钮 -->
+      <button id="btn-record" class="ui-btn ui-btn-capture" title="录像">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <circle cx="12" cy="12" r="5" fill="#e53935" class="record-dot"/>
+        </svg>
+      </button>
+      <div id="petal-count-control" class="petal-control">
+        <label>花瓣密度</label>
+        <input type="range" id="petal-density" min="100" max="2000" value="800" step="10">
+      </div>
+    </div>
+    <div id="fps-counter" class="fps-counter"></div>
+    <!-- 录像计时 -->
+    <div id="record-time" class="record-time hidden">00:00</div>
+    <!-- 拍照闪光 -->
+    <div id="capture-flash" class="capture-flash"></div>
+    <!-- 提示 -->
+    <div id="capture-toast" class="capture-toast"></div>
+  </div>
+
+  <!-- Three.js r149（本地） -->
+  <script src="libs/three.min.js"></script>
+  <!-- MediaPipe Selfie Segmentation（本地） -->
+  <script src="libs/mediapipe/selfie_segmentation.js"></script>
+  <script src="js/camera.js"></script>
+  <script src="js/segmentation.js"></script>
+  <script src="js/particles.js"></script>
+  <script src="js/gyroscope.js"></script>
+  <script src="js/capture.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

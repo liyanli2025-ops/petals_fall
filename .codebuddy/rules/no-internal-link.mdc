@@ -1,0 +1,100 @@
+---
+description: 
+alwaysApply: true
+enabled: true
+updatedAt: 2026-03-17T06:32:57.225Z
+provider: 
+---
+
+# 禁止包含内部链接
+
+## 规则说明
+
+在编写 H5 页面代码时，**禁止包含任何内部链接**。包括但不限于 localhost、回环地址、内网 IP、开发/测试/预发环境域名、公司内网域名等。这些链接在生产环境中不可访问，且可能泄露内部系统信息。
+
+## 禁止的链接类型
+
+### 1. localhost 和回环地址
+
+```html
+<!-- ❌ 错误 -->
+<a href="http://localhost:3000/api/data">本地链接</a>
+<img src="http://127.0.0.1:8080/images/test.png">
+<script src="http://localhost:5173/main.js"></script>
+```
+
+### 2. 内网 IP 地址
+
+```html
+<!-- ❌ 错误：10.x.x.x（A 类私有地址） -->
+<a href="http://10.0.0.1:8080/admin">内网链接</a>
+
+<!-- ❌ 错误：172.16-31.x.x（B 类私有地址） -->
+<img src="http://172.16.0.100/resource.png">
+
+<!-- ❌ 错误：192.168.x.x（C 类私有地址） -->
+<script src="http://192.168.1.100:3000/bundle.js"></script>
+```
+
+### 3. 开发/测试/预发环境域名
+
+```html
+<!-- ❌ 错误 -->
+<a href="https://dev.example.com/page">开发环境</a>
+<a href="https://test.example.com/api">测试环境</a>
+<a href="https://staging.example.com/preview">预发环境</a>
+<a href="https://pre.example.com/check">预发环境</a>
+<script src="https://mock.example.com/api/data.js"></script>
+<link href="https://sandbox.example.com/styles.css" rel="stylesheet">
+```
+
+### 4. 公司内网域名
+
+```html
+<!-- ❌ 错误 -->
+<a href="https://portal.woa.com/internal">内网系统</a>
+<a href="http://tapd.woa.com/project">TAPD</a>
+<img src="https://cdn.woa.com/internal/image.png">
+```
+
+### 5. JS 中的内部链接
+
+```javascript
+// ❌ 错误
+fetch('http://localhost:3000/api/data');
+const API_BASE = 'http://10.0.0.1:8080';
+window.open('https://test.internal.com/debug');
+location.href = 'http://192.168.1.1/admin';
+
+// ✅ 正确：使用生产环境地址
+fetch('https://api.qq.com/data');
+const API_BASE = 'https://news.qq.com/api';
+```
+
+### 6. CSS 中的内部链接
+
+```css
+/* ❌ 错误 */
+background-image: url('http://localhost:3000/images/bg.png');
+@import url('http://192.168.1.100/styles/reset.css');
+
+/* ✅ 正确 */
+background-image: url('./assets/bg.png');
+```
+
+## 风险说明
+
+| 链接类型 | 风险等级 | 说明 |
+|---------|---------|------|
+| localhost / 127.0.0.1 | 🔴 ERROR | 生产环境完全不可访问，页面功能必定异常 |
+| 内网 IP（10.x / 172.x / 192.168.x） | 🔴 ERROR | 外网不可访问，资源加载失败 |
+| .woa.com 内网域名 | 🔴 ERROR | 公司内网，外部用户无法访问，且泄露内部地址 |
+| dev/test/staging 环境 | 🟡 WARN | 非生产环境，数据不稳定，可能随时下线 |
+| mock/sandbox 环境 | 🟡 WARN | 模拟环境，返回数据可能不真实 |
+
+## 处理建议
+
+- 所有 API 请求地址应使用**生产环境域名**
+- 资源文件应使用**相对路径**或上传到**白名单 CDN**
+- 如需环境区分，使用环境变量或配置文件管理，而非硬编码
+- 任何涉及 `.woa.com` 的链接/文案都应该删除

@@ -1,0 +1,13 @@
+{
+  "name": "page-deploy-skill",
+  "version": "1.0.0",
+  "description": "发布 H5 页面到 CDN 和 HTML 服务器（空壳，核心逻辑由 @tencent/qn-page-deploy 提供）",
+  "dependencies": {
+    "@tencent/qn-page-deploy": "^0.0.2",
+    "@tencent/qn-page-deploy-rules": "^0.0.5",
+    "chalk": "^4.1.2"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
