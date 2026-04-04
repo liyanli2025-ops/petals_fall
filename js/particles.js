@@ -342,6 +342,12 @@ class PetalParticleSystem {
       flipTimer: Math.random() * 2.5, flipCooldown: 1.2 + Math.random() * 2.5,
       isFlipping: false, flipEndTime: 0, gustResponse: 0.5 + Math.random() * 0.5,
       state: 'falling', restTimer: 0, restDuration: 0, slideSpeed: 0, originalFallSpeed: 0,
+      // landing 过渡
+      landingTimer: 0, landingDuration: 0, landingStartSpeed: 0,
+      // resting 增强
+      restTargetRx: 0, restTargetRz: 0, breathPhase: 0, flutterPhase: 0,
+      // sliding 增强
+      slideDriftDir: 0,
       needsRecycle: false,
     };
     petal.originalFallSpeed = petal.fallSpeed;
@@ -372,6 +378,8 @@ class PetalParticleSystem {
     petal.originalFallSpeed = petal.fallSpeed;
     petal.flipTimer = 0.5 + Math.random() * 2; petal.gustResponse = 0.5 + Math.random() * 0.5;
     petal.state = 'falling'; petal.restTimer = 0; petal.slideSpeed = 0;
+    petal.landingTimer = 0; petal.landingDuration = 0; petal.landingStartSpeed = 0;
+    petal.restTargetRx = 0; petal.restTargetRz = 0; petal.slideDriftDir = 0;
   }
 
   _rebuildAllInstanceMatrices() {
@@ -476,22 +484,86 @@ class PetalParticleSystem {
     for (let i = 0; i < this.petalData.length; i++) {
       const p = this.petalData[i];
 
+      // ===== landing 着陆过渡 =====
+      if (p.state === 'landing') {
+        restCount++;
+        p.landingTimer += delta;
+        const t = Math.min(p.landingTimer / p.landingDuration, 1.0);
+        const ease = 1 - (1 - t) * (1 - t); // ease-out
+
+        // 速度衰减
+        p.fallSpeed = p.landingStartSpeed * (1 - ease);
+        p.py -= p.fallSpeed * p.dragFactor * delta;
+
+        // 微弹：sin 波在 t≈0.5 达到峰值
+        p.py += Math.sin(t * Math.PI) * 0.012 * p.scale;
+
+        // 旋转趋平（lerp 向贴合目标）
+        p.rx += (p.restTargetRx - p.rx) * ease * 0.3;
+        p.rz += (p.restTargetRz - p.rz) * ease * 0.3;
+        p.rotSpeedX *= 0.90; p.rotSpeedY *= 0.92; p.rotSpeedZ *= 0.90;
+        p.ry += p.rotSpeedY * delta;
+
+        if (t >= 1.0) {
+          p.state = 'resting'; p.fallSpeed = 0; p.restTimer = 0;
+        }
+        continue;
+      }
+
+      // ===== resting 停留（含呼吸感+翘边颤动+受风微扰） =====
       if (p.state === 'resting') {
         restCount++; p.restTimer += delta;
-        p.px += Math.sin(elapsed * 1.5 + p.swayPhase) * 0.003; p.ry += 0.05 * delta;
+
+        // 呼吸感起伏
+        p.py += Math.sin(elapsed * 0.8 + p.breathPhase) * 0.005 * delta;
+
+        // 横向微晃
+        p.px += Math.sin(elapsed * 1.5 + p.swayPhase) * 0.003;
+        p.pz += Math.cos(elapsed * 1.1 + p.swayPhase) * 0.002;
+
+        // 翘边颤动
+        p.rx = p.restTargetRx + Math.sin(elapsed * 2.5 + p.flutterPhase) * 0.04;
+        p.rz = p.restTargetRz + Math.cos(elapsed * 1.8 + p.flutterPhase) * 0.03;
+
+        // y 轴缓慢旋转
+        p.ry += 0.05 * delta;
+
+        // 受风微扰
+        p.px += windX * delta * 0.02;
+
         let shouldSlide = p.restTimer > p.restDuration;
         if (!shouldSlide && collisionActive) {
           this._projVec.set(p.px, p.py, p.pz); this._projVec.project(projCamera);
           const sx = (this._projVec.x * 0.5 + 0.5) * screenW, sy = (-this._projVec.y * 0.5 + 0.5) * screenH;
           if (!this.bodyCollision.isInsideBody(sx, sy)) shouldSlide = true;
         }
-        if (shouldSlide) { p.state = 'sliding'; p.slideSpeed = p.originalFallSpeed * 0.3; }
+        if (shouldSlide) {
+          p.state = 'sliding'; p.slideSpeed = p.originalFallSpeed * 0.15;
+          p.slideDriftDir = (Math.random() > 0.5 ? 1 : -1) * (0.3 + Math.random() * 0.5);
+        }
         continue;
       }
+
+      // ===== sliding 滑落（侧翻+横向漂移+阵风再捕获） =====
       if (p.state === 'sliding') {
-        p.slideSpeed += 8.0 * delta; p.py -= p.slideSpeed * delta;
-        p.px += Math.sin(elapsed * 2 + p.swayPhase) * 0.01;
-        p.rx += p.rotSpeedX * 0.3 * delta; p.ry += p.rotSpeedY * 0.3 * delta;
+        p.slideSpeed += 6.0 * delta;
+        p.py -= p.slideSpeed * delta;
+
+        // 横向漂移
+        p.px += p.slideDriftDir * delta;
+        p.px += Math.sin(elapsed * 2 + p.swayPhase) * 0.015;
+
+        // 侧翻旋转
+        p.rx += p.rotSpeedX * 0.8 * delta;
+        p.ry += p.rotSpeedY * 0.5 * delta;
+        p.rz += p.slideDriftDir * 1.5 * delta;
+
+        // 阵风再捕获：有小概率被风重新托起
+        if (gustActive && Math.random() < 0.015) {
+          p.state = 'falling'; p.fallSpeed = p.originalFallSpeed * 0.5;
+          continue;
+        }
+
         if (p.slideSpeed > p.originalFallSpeed * 1.5) { p.state = 'falling'; p.fallSpeed = p.originalFallSpeed; }
         const dx2 = p.px - camX, dy2 = p.py - camY, dz2 = p.pz - camZ;
         if (dx2*dx2 + dy2*dy2 + dz2*dz2 > recycleDistSq) { p.state = 'falling'; p.fallSpeed = p.originalFallSpeed; this._recyclePetalData(p); }
@@ -534,8 +606,8 @@ class PetalParticleSystem {
       const dx = p.px - camX, dy = p.py - camY, dz = p.pz - camZ;
       if (dx*dx + dy*dy + dz*dz > recycleDistSq) this._recyclePetalData(p);
 
-      // 碰撞（只对 mid/midNear/near 层，且停留上限 40 片）
-      const canCollide = collisionActive && projCamera && restCount < 40 &&
+      // 碰撞（只对 mid/midNear/near 层，且停留上限 3 片）
+      const canCollide = collisionActive && projCamera && restCount < 3 &&
         (p.layerKey === 'mid' || p.layerKey === 'midNear' || p.layerKey === 'near');
       if (canCollide) {
         this._projVec.set(p.px, p.py, p.pz); this._projVec.project(projCamera);
@@ -543,8 +615,20 @@ class PetalParticleSystem {
         if (this._projVec.z > 0 && this._projVec.z < 1 && sx >= 0 && sx < screenW && sy >= 0 && sy < screenH) {
           const hit = this.bodyCollision.testPoint(sx, sy);
           if (hit.hit) {
-            p.state = 'resting'; p.restTimer = 0; p.restDuration = 3.0 + Math.random() * 3.0;
-            p.originalFallSpeed = p.fallSpeed; p.fallSpeed = 0; p.slideSpeed = 0;
+            // 进入 landing 着陆过渡（而非直接 resting）
+            p.state = 'landing';
+            p.landingTimer = 0;
+            p.landingDuration = 0.25 + Math.random() * 0.25; // 0.25~0.5s 过渡
+            p.landingStartSpeed = p.fallSpeed;
+            p.originalFallSpeed = p.fallSpeed;
+            p.restTimer = 0;
+            p.restDuration = 1.5 + Math.random() * 2.0;
+            p.slideSpeed = 0;
+            // 贴合目标姿态（不完全水平，有些许倾斜更自然）
+            p.restTargetRx = (Math.random() - 0.5) * 0.3;
+            p.restTargetRz = (Math.random() - 0.5) * 0.3;
+            p.breathPhase = Math.random() * Math.PI * 2;
+            p.flutterPhase = Math.random() * Math.PI * 2;
           }
         }
       }

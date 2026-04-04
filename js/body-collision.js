@@ -32,7 +32,7 @@ class BodyCollisionDetector {
     // 碰撞参数
     this.edgeThreshold = 0.06;    // 判定为"边缘碰撞"的 y 距离阈值（归一化）— 只让刚好触碰到人物边缘的花瓣停留
     this.insideEnabled = true;     // 是否也检测人物内部碰撞（花瓣从侧面飘入）
-    this.headExcludeRatio = 0.25;  // 排除头部区域：人物区域顶部 25% 范围内不触发碰撞
+    this.headExcludeRatio = 0.55;  // 排除头部+脖子+上肩区域：人物区域顶部 55% 范围内不触发碰撞
     
     // 状态
     this.hasValidData = false;
