@@ -191,17 +191,13 @@ class GyroscopeManager {
     const beta = e.beta || 0;
     const gamma = e.gamma || 0;
 
-    // 构建当前设备四元数
+    // 构建当前设备四元数（绝对方向）
     const qCurrent = this._deviceOrientationToQuaternion(alpha, beta, gamma);
 
-    if (!this.isCalibrated) {
-      // 校准：记录初始姿态的逆
-      this.calibrationQuat = qCurrent.clone().invert();
-      this.isCalibrated = true;
-    }
-
-    // 相对旋转 = 校准逆 × 当前 → 相对于初始姿态的偏转
-    this.currentQuat.copy(this.calibrationQuat).multiply(qCurrent);
+    // 直接使用绝对四元数，不做相对校准
+    // 这样相机的世界坐标系和花瓣的世界坐标系一致
+    // 花瓣沿世界 -Y 飘落 = 永远朝重力方向
+    this.currentQuat.copy(qCurrent);
   }
 
   /**
