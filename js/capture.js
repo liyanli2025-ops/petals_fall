@@ -31,6 +31,14 @@ class CaptureManager {
 
     // 外部注入 CameraManager 引用（用于判断前置/后置）
     this.cameraManager = null;
+
+    // === 运动模糊（多帧累积） ===
+    // 保存最近 N 帧的花瓣层快照，合成时叠加产生拖影
+    this._motionBlurFrames = 3;         // 保留历史帧数
+    this._petalHistoryBuffers = [];     // ring buffer: 离屏 canvas 数组
+    this._historyWriteIndex = 0;        // 当前写入位置
+    this._historyFilled = 0;            // 已填充的帧数
+    this._motionBlurInited = false;
   }
 
   init() {
@@ -81,7 +89,36 @@ class CaptureManager {
   }
 
   /**
-   * 将所有可见层合成到离屏 canvas
+   * 初始化运动模糊的离屏 buffer（延迟初始化，尺寸匹配合成 canvas）
+   */
+  _initMotionBlurBuffers(w, h) {
+    this._petalHistoryBuffers = [];
+    for (let i = 0; i < this._motionBlurFrames; i++) {
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      this._petalHistoryBuffers.push({
+        canvas: c,
+        ctx: c.getContext('2d'),
+      });
+    }
+    this._historyWriteIndex = 0;
+    this._historyFilled = 0;
+    this._motionBlurInited = true;
+    this._motionBlurW = w;
+    this._motionBlurH = h;
+
+    // 当前帧花瓣临时合成 canvas
+    if (!this._petalTempCanvas) {
+      this._petalTempCanvas = document.createElement('canvas');
+      this._petalTempCtx = this._petalTempCanvas.getContext('2d');
+    }
+    this._petalTempCanvas.width = w;
+    this._petalTempCanvas.height = h;
+  }
+
+  /**
+   * 将所有可见层合成到离屏 canvas（含运动模糊）
    */
   _composite() {
     const ctx = this.compositeCtx;
@@ -126,31 +163,110 @@ class CaptureManager {
       ctx.fillRect(0, 0, w, h);
     }
 
+    // === 运动模糊：将花瓣层先合成到临时 canvas，再存入历史 buffer ===
+
+    // 懒初始化 / 尺寸变化时重建 buffer
+    if (!this._motionBlurInited || this._motionBlurW !== w || this._motionBlurH !== h) {
+      this._initMotionBlurBuffers(w, h);
+    }
+
+    const tmpCtx = this._petalTempCtx;
+    tmpCtx.clearRect(0, 0, w, h);
+
     // 2. 远景花瓣层（CSS blur(1px) 对应 + 轻微降透）
     if (this.canvasFar.width > 0) {
-      ctx.save();
-      ctx.globalAlpha = 0.75;
-      this._drawBlurred(ctx, this.canvasFar, w, h, 1);
-      ctx.restore();
+      tmpCtx.save();
+      tmpCtx.globalAlpha = 0.75;
+      this._drawBlurred(tmpCtx, this.canvasFar, w, h, 1);
+      tmpCtx.restore();
     }
 
     // 3. 中景花瓣层（无模糊）
     if (this.canvasMid.width > 0) {
-      ctx.drawImage(this.canvasMid, 0, 0, w, h);
+      tmpCtx.drawImage(this.canvasMid, 0, 0, w, h);
     }
 
     // 4. 人物遮罩层 — 录制合成时跳过！
     // canvasPerson 只在屏幕实时显示时用于 CSS z-index 分层（让人物遮挡远景花瓣）。
     // 合成到单个 canvas 时，底层视频已包含完整人物画面，
     // 再叠 canvasPerson 会导致人物区域被 alpha blend 两次 → 残影。
-    // 正确的合成顺序：视频 → 远景花瓣 → 中景花瓣 → 近景花瓣（不需要人物遮罩层）。
 
     // 5. 近景花瓣层（CSS blur(4px) 对应 + 降低透明度，更自然的景深虚化）
     if (this.canvasNear.width > 0) {
+      tmpCtx.save();
+      tmpCtx.globalAlpha = 0.55;
+      this._drawBlurred(tmpCtx, this.canvasNear, w, h, 4);
+      tmpCtx.restore();
+    }
+
+    // --- 运动模糊叠加 ---
+    // 先叠历史帧（越老的帧透明度越低），产生运动拖影
+    // 透明度分配：从最老到最新 → 0.12, 0.20, 0.30
+    const alphaLevels = [0.12, 0.20, 0.30];
+    const totalHistory = Math.min(this._historyFilled, this._motionBlurFrames);
+    for (let age = totalHistory; age >= 1; age--) {
+      // age=1 是上一帧, age=totalHistory 是最老的帧
+      const bufIdx = (this._historyWriteIndex - age + this._motionBlurFrames) % this._motionBlurFrames;
+      const alphaIdx = this._motionBlurFrames - age; // 0=最老, N-1=最新历史帧
+      const alpha = alphaLevels[alphaIdx] || 0.10;
       ctx.save();
-      ctx.globalAlpha = 0.55;
-      this._drawBlurred(ctx, this.canvasNear, w, h, 4);
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(this._petalHistoryBuffers[bufIdx].canvas, 0, 0, w, h);
       ctx.restore();
+    }
+
+    // 当前帧花瓣全透明度叠加
+    ctx.drawImage(this._petalTempCanvas, 0, 0, w, h);
+
+    // 将当前帧花瓣层存入 ring buffer 供下一帧使用
+    const writeBuf = this._petalHistoryBuffers[this._historyWriteIndex];
+    writeBuf.ctx.clearRect(0, 0, w, h);
+    writeBuf.ctx.drawImage(this._petalTempCanvas, 0, 0, w, h);
+    this._historyWriteIndex = (this._historyWriteIndex + 1) % this._motionBlurFrames;
+    if (this._historyFilled < this._motionBlurFrames) this._historyFilled++;
+  }
+
+  /**
+   * 拍照前预缓存花瓣层历史帧
+   * 在不影响合成 canvas 的情况下，快速将当前花瓣层快照存入 ring buffer
+   */
+  _preloadMotionBlurHistory() {
+    const w = this.compositeCanvas.width;
+    const h = this.compositeCanvas.height;
+
+    if (!this._motionBlurInited || this._motionBlurW !== w || this._motionBlurH !== h) {
+      this._initMotionBlurBuffers(w, h);
+    }
+    if (!this._petalTempCanvas) return;
+
+    const tmpCtx = this._petalTempCtx;
+
+    // 快速连续存入 N 帧——实际花瓣已经在每帧动画中移动了位置，
+    // 所以这里每次读到的 canvasFar/canvasMid/canvasNear 都是最新一帧的位置。
+    // 我们只需把当前帧花瓣快照存入 buffer 即可
+    // （真正的时间差异来自动画循环中花瓣的位移，预缓存确保 buffer 非空）
+    for (let f = 0; f < this._motionBlurFrames; f++) {
+      tmpCtx.clearRect(0, 0, w, h);
+      if (this.canvasFar.width > 0) {
+        tmpCtx.save();
+        tmpCtx.globalAlpha = 0.75;
+        this._drawBlurred(tmpCtx, this.canvasFar, w, h, 1);
+        tmpCtx.restore();
+      }
+      if (this.canvasMid.width > 0) {
+        tmpCtx.drawImage(this.canvasMid, 0, 0, w, h);
+      }
+      if (this.canvasNear.width > 0) {
+        tmpCtx.save();
+        tmpCtx.globalAlpha = 0.55;
+        this._drawBlurred(tmpCtx, this.canvasNear, w, h, 4);
+        tmpCtx.restore();
+      }
+      const writeBuf = this._petalHistoryBuffers[this._historyWriteIndex];
+      writeBuf.ctx.clearRect(0, 0, w, h);
+      writeBuf.ctx.drawImage(this._petalTempCanvas, 0, 0, w, h);
+      this._historyWriteIndex = (this._historyWriteIndex + 1) % this._motionBlurFrames;
+      if (this._historyFilled < this._motionBlurFrames) this._historyFilled++;
     }
   }
 
@@ -256,6 +372,11 @@ class CaptureManager {
     }
 
     try {
+      // 预缓存花瓣层历史帧，确保运动模糊有数据
+      // 录像中已经有持续的 composite loop 在积累历史帧，无需额外预缓存
+      if (!this.isRecording) {
+        this._preloadMotionBlurHistory();
+      }
       this._composite();
     } catch (err) {
       console.error('合成画面失败:', err);
