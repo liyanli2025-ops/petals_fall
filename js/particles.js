@@ -49,7 +49,7 @@ class PetalParticleSystem {
       dust:     { ratio: 0.08, scaleMin: 0.08, scaleMax: 0.15, radiusMin: 16, radiusMax: 25, renderLayer: 'far',  fallMult: 0.7  },
       veryFar:  { ratio: 0.12, scaleMin: 0.15, scaleMax: 0.25, radiusMin: 12, radiusMax: 18, renderLayer: 'far',  fallMult: 0.8  },
       far:      { ratio: 0.14, scaleMin: 0.22, scaleMax: 0.40, radiusMin: 8,  radiusMax: 13, renderLayer: 'far',  fallMult: 0.9  },
-      midFar:   { ratio: 0.14, scaleMin: 0.35, scaleMax: 0.55, radiusMin: 6,  radiusMax: 12, renderLayer: 'mid',  fallMult: 1.0  },
+      midFar:   { ratio: 0.14, scaleMin: 0.35, scaleMax: 0.55, radiusMin: 6,  radiusMax: 12, renderLayer: 'far',  fallMult: 1.0  },
       mid:      { ratio: 0.16, scaleMin: 0.45, scaleMax: 0.70, radiusMin: 4,  radiusMax: 9,  renderLayer: 'mid',  fallMult: 1.0  },
       midNear:  { ratio: 0.12, scaleMin: 0.55, scaleMax: 0.80, radiusMin: 3,  radiusMax: 6,  renderLayer: 'mid',  fallMult: 1.05 },
       near:     { ratio: 0.14, scaleMin: 0.60, scaleMax: 0.90, radiusMin: 2,  radiusMax: 5,  renderLayer: 'near', fallMult: 1.1  },
@@ -77,6 +77,11 @@ class PetalParticleSystem {
     this.bodyCollision = null;
     this._projVec = new THREE.Vector3();
     this.restingCount = 0;
+    
+    // === 涡流系统（人物大动作触发） ===
+    this.vortices = [];           // 活跃涡流列表
+    this._maxVortices = 3;        // 最多同时存在的涡流数
+    this._vortexCooldown = 0;     // 涡流触发冷却（避免连续触发）
   }
 
   get petals() {
@@ -105,7 +110,7 @@ class PetalParticleSystem {
         alpha: true,
         antialias: true,
         powerPreference: 'high-performance',
-        preserveDrawingBuffer: true
+        preserveDrawingBuffer: false
       });
       this.renderer.setSize(window.innerWidth, window.innerHeight);
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // 3-pass 需要更低 DPR 保性能
@@ -374,12 +379,136 @@ class PetalParticleSystem {
     petal.swayFrequency = 0.4 + Math.random() * 0.9; petal.spiralPhase = Math.random() * Math.PI * 2;
     petal.spiralSpeed = (Math.random() - 0.5) * 1.2;
     petal.driftX = (Math.random() - 0.5) * 0.6; petal.driftZ = (Math.random() - 0.5) * 0.5;
+    // 重置 scale 到层级原始范围（碰撞时可能被放大过）
+    petal.scale = cfg.scaleMin + Math.random() * (cfg.scaleMax - cfg.scaleMin);
     petal.fallSpeed = this.fallSpeed * (0.3 + Math.random() * 0.7) * (cfg.fallMult || 1.0);
     petal.originalFallSpeed = petal.fallSpeed;
     petal.flipTimer = 0.5 + Math.random() * 2; petal.gustResponse = 0.5 + Math.random() * 0.5;
     petal.state = 'falling'; petal.restTimer = 0; petal.slideSpeed = 0;
     petal.landingTimer = 0; petal.landingDuration = 0; petal.landingStartSpeed = 0;
     petal.restTargetRx = 0; petal.restTargetRz = 0; petal.slideDriftDir = 0;
+  }
+
+  /**
+   * 生成涡流（由人物大动作触发）
+   * @param {number} screenNX - 人物中心屏幕归一化 X (0~1)
+   * @param {number} screenNY - 人物中心屏幕归一化 Y (0~1)
+   * @param {number} intensity - 运动强度 (0~1)
+   * @param {number} rotSign - 旋转方向 (-1 或 1)
+   */
+  spawnVortex(screenNX, screenNY, intensity, rotSign) {
+    if (this._vortexCooldown > 0) return;
+    if (this.vortices.length >= this._maxVortices) {
+      // 移除最老的涡流
+      this.vortices.shift();
+    }
+    
+    // 将屏幕归一化坐标反投影到 3D 空间
+    // 涡流位于 z ≈ 5~8 的位置（大约是中景花瓣的深度范围）
+    const ndcX = screenNX * 2 - 1;
+    const ndcY = -(screenNY * 2 - 1);
+    const depth = 6.0; // 涡流在 3D 空间的深度
+    
+    // 用相机反投影得到世界坐标
+    const worldPos = new THREE.Vector3(ndcX, ndcY, 0.5);
+    worldPos.unproject(this.camera);
+    // 从相机位置沿射线方向放置在 depth 距离
+    const dir = worldPos.sub(this.camera.position).normalize();
+    const vx = this.camera.position.x + dir.x * depth;
+    const vy = this.camera.position.y + dir.y * depth;
+    const vz = this.camera.position.z + dir.z * depth;
+    
+    const maxLife = 1.8 + intensity * 1.5; // 1.8~3.3 秒
+    
+    this.vortices.push({
+      cx: vx, cy: vy, cz: vz,
+      radius: 3.0 + intensity * 3.0,       // 有效半径 3~6
+      maxRadius: 5.0 + intensity * 4.0,     // 扩散最大半径 5~9
+      strength: 4.0 + intensity * 8.0,      // 切向力强度
+      rotSign: rotSign,                      // 旋转方向
+      life: maxLife,
+      maxLife: maxLife,
+      upForce: 1.5 + intensity * 2.5,       // 上升力
+      rampUp: 0.2,                           // 启动延迟（秒）
+    });
+    
+    this._vortexCooldown = 0.5; // 0.5 秒冷却
+    console.log(`[涡流] 生成! 位置=(${vx.toFixed(1)},${vy.toFixed(1)},${vz.toFixed(1)}) 强度=${intensity.toFixed(2)} 方向=${rotSign > 0 ? '顺时针' : '逆时针'}`);
+  }
+
+  /**
+   * 更新涡流生命周期
+   */
+  _updateVortices(delta) {
+    this._vortexCooldown = Math.max(0, this._vortexCooldown - delta);
+    
+    for (let i = this.vortices.length - 1; i >= 0; i--) {
+      const v = this.vortices[i];
+      v.life -= delta;
+      if (v.life <= 0) {
+        this.vortices.splice(i, 1);
+        continue;
+      }
+      // 生命衰减比例
+      const lifeRatio = v.life / v.maxLife;
+      // 启动渐入
+      const age = v.maxLife - v.life;
+      const rampFactor = Math.min(1.0, age / v.rampUp);
+      // 综合衰减（启动渐入 × 生命衰减）
+      v._effectiveStrength = v.strength * rampFactor * lifeRatio * lifeRatio;
+      v._effectiveUp = v.upForce * rampFactor * lifeRatio;
+      // 半径随时间扩大
+      v._currentRadius = v.radius + (v.maxRadius - v.radius) * (1 - lifeRatio);
+    }
+  }
+
+  /**
+   * 计算涡流对花瓣施加的力
+   * @returns {{ fx, fy, fz, rotBoost }} 力和旋转加速
+   */
+  _calcVortexForce(px, py, pz) {
+    let fx = 0, fy = 0, fz = 0, rotBoost = 0;
+    
+    for (const v of this.vortices) {
+      const dx = px - v.cx;
+      const dy = py - v.cy;
+      const dz = pz - v.cz;
+      const distSq = dx * dx + dy * dy + dz * dz;
+      const r = v._currentRadius;
+      
+      if (distSq > r * r) continue;
+      
+      const dist = Math.sqrt(distSq) + 0.01;
+      const strength = v._effectiveStrength;
+      
+      // 距离衰减：中心附近最强，边缘递减
+      // 使用钟形曲线：peak 在 0.3r 处，避免中心奇点
+      const normalDist = dist / r;
+      const falloff = Math.exp(-((normalDist - 0.3) * (normalDist - 0.3)) / 0.18) * (1 - normalDist * normalDist);
+      const effectiveFalloff = Math.max(0, falloff);
+      
+      // 切向力（XZ 平面上的旋转）
+      // 方向：垂直于 (dx, dz) 方向
+      const hDist = Math.sqrt(dx * dx + dz * dz) + 0.01;
+      const tangentX = -dz / hDist * v.rotSign;
+      const tangentZ = dx / hDist * v.rotSign;
+      
+      fx += tangentX * strength * effectiveFalloff;
+      fz += tangentZ * strength * effectiveFalloff;
+      
+      // 弱向心力（微微拉向中心，防止飞散）
+      const inwardStrength = strength * 0.15 * effectiveFalloff;
+      fx -= (dx / dist) * inwardStrength;
+      fz -= (dz / dist) * inwardStrength;
+      
+      // 上升力
+      fy += v._effectiveUp * effectiveFalloff;
+      
+      // 旋转加速
+      rotBoost += strength * effectiveFalloff * 0.5;
+    }
+    
+    return { fx, fy, fz, rotBoost };
   }
 
   _rebuildAllInstanceMatrices() {
@@ -458,6 +587,17 @@ class PetalParticleSystem {
     const gustZ = this.gust.active ? Math.sin(this.gust.direction) * this.gust.strength : 0;
     const now = performance.now();
 
+    // === 涡流系统 ===
+    // 检测大动作事件并生成涡流
+    if (this.bodyCollision && this.bodyCollision.bigMotionEvent) {
+      const evt = this.bodyCollision.bigMotionEvent;
+      this.spawnVortex(evt.cx, evt.cy, evt.intensity, evt.rotSign);
+      this.bodyCollision.bigMotionEvent = null; // 消费事件
+    }
+    // 更新涡流生命周期
+    this._updateVortices(delta);
+    const hasVortices = this.vortices.length > 0;
+
     // 相机
     if (cameraData) {
       if (cameraData.mode === 'gyroscope' && cameraData.quaternion) this.camera.quaternion.copy(cameraData.quaternion);
@@ -480,12 +620,19 @@ class PetalParticleSystem {
     const screenW = window.innerWidth, screenH = window.innerHeight;
     const projCamera = this.camera;
     let restCount = 0;
+    // 人物近距离标记：人很近时停靠花瓣应被释放
+    const personTooClose = collisionActive && this.bodyCollision.estimatedDistance < 0.35;
 
     for (let i = 0; i < this.petalData.length; i++) {
       const p = this.petalData[i];
 
       // ===== landing 着陆过渡 =====
       if (p.state === 'landing') {
+        // 人物突然靠近 → 释放停靠花瓣
+        if (personTooClose) {
+          p.state = 'falling'; p.fallSpeed = p.originalFallSpeed;
+          continue;
+        }
         restCount++;
         p.landingTimer += delta;
         const t = Math.min(p.landingTimer / p.landingDuration, 1.0);
@@ -512,6 +659,11 @@ class PetalParticleSystem {
 
       // ===== resting 停留（含呼吸感+翘边颤动+受风微扰） =====
       if (p.state === 'resting') {
+        // 人物突然靠近 → 释放停靠花瓣
+        if (personTooClose) {
+          p.state = 'falling'; p.fallSpeed = p.originalFallSpeed;
+          continue;
+        }
         restCount++; p.restTimer += delta;
 
         // 呼吸感起伏
@@ -530,6 +682,18 @@ class PetalParticleSystem {
 
         // 受风微扰
         p.px += windX * delta * 0.02;
+
+        // 涡流可以把 resting 的花瓣吹起
+        if (hasVortices) {
+          const vForce = this._calcVortexForce(p.px, p.py, p.pz);
+          if (Math.abs(vForce.fx) + Math.abs(vForce.fy) + Math.abs(vForce.fz) > 2.0) {
+            p.state = 'falling';
+            p.fallSpeed = p.originalFallSpeed * 0.3;
+            p.rotSpeedX = (Math.random() - 0.5) * 2.0;
+            p.rotSpeedY = (Math.random() - 0.5) * 1.5;
+            continue;
+          }
+        }
 
         let shouldSlide = p.restTimer > p.restDuration;
         if (!shouldSlide && collisionActive) {
@@ -603,11 +767,27 @@ class PetalParticleSystem {
         p.px += gustX * gr; p.pz += gustZ * gr; p.py += this.gust.strength * 0.02 * gr;
         p.rotSpeedX += gustX * 0.15 * p.gustResponse; p.rotSpeedZ += gustZ * 0.1 * p.gustResponse;
       }
+      // === 涡流受力（只影响中近景层） ===
+      if (hasVortices && (p.layerKey === 'mid' || p.layerKey === 'midNear' || p.layerKey === 'near'
+        || p.layerKey === 'midFar' || p.layerKey === 'veryNear')) {
+        const vForce = this._calcVortexForce(p.px, p.py, p.pz);
+        if (vForce.fx !== 0 || vForce.fy !== 0 || vForce.fz !== 0) {
+          p.px += vForce.fx * delta;
+          p.py += vForce.fy * delta;
+          p.pz += vForce.fz * delta;
+          // 涡流加速花瓣自转
+          p.rotSpeedX += vForce.rotBoost * delta * (Math.random() - 0.5);
+          p.rotSpeedY += vForce.rotBoost * delta * 0.8;
+          p.rotSpeedZ += vForce.rotBoost * delta * (Math.random() - 0.5) * 0.5;
+        }
+      }
       const dx = p.px - camX, dy = p.py - camY, dz = p.pz - camZ;
       if (dx*dx + dy*dy + dz*dz > recycleDistSq) this._recyclePetalData(p);
 
       // 碰撞（只对 mid/midNear/near 层，且停留上限 3 片）
-      const canCollide = collisionActive && projCamera && restCount < 3 &&
+      // 人物很近时（面积大、占满屏幕）禁用碰撞停靠，避免花瓣遮挡人脸
+      const isCloseUp = collisionActive && this.bodyCollision.estimatedDistance < 0.35;
+      const canCollide = collisionActive && !isCloseUp && projCamera && restCount < 3 &&
         (p.layerKey === 'mid' || p.layerKey === 'midNear' || p.layerKey === 'near');
       if (canCollide) {
         this._projVec.set(p.px, p.py, p.pz); this._projVec.project(projCamera);
@@ -649,13 +829,18 @@ class PetalParticleSystem {
           const vis = (rk === renderKey);
           for (const m of meshes) { if (m) m.visible = vis; }
         }
-        // 渲染
+        // 显式清除 WebGL buffer，防止残影
+        this.renderer.clear();
+        // 渲染当前 pass
         this.renderer.render(this.scene, this.camera);
-        // 复制到 2D canvas
+        // 立即同步复制到 2D canvas（在浏览器合成前完成读取）
         const layer = this.displayLayers[renderKey];
         if (layer && layer.ctx) {
           const dw = layer.canvas.width, dh = layer.canvas.height;
           layer.ctx.clearRect(0, 0, dw, dh);
+          // 强制 flush WebGL 确保像素已就绪
+          const gl = this.renderer.getContext();
+          if (gl) gl.flush();
           layer.ctx.drawImage(webglCanvas, 0, 0, dw, dh);
         }
       }
@@ -734,7 +919,7 @@ class PetalParticleSystem {
       }
       this.renderer = new THREE.WebGLRenderer({
         canvas: this.canvas, alpha: true, antialias: true,
-        powerPreference: 'high-performance', preserveDrawingBuffer: true
+        powerPreference: 'high-performance', preserveDrawingBuffer: false
       });
       this.renderer.setSize(window.innerWidth, window.innerHeight);
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));

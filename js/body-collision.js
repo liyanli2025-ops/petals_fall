@@ -38,6 +38,22 @@ class BodyCollisionDetector {
     this.hasValidData = false;
     this.lastUpdateTime = 0;
     
+    // === 人物距离感知 ===
+    this.bodyAreaRatio = 0;           // 人物蒙版面积占比 (0~1)
+    this._smoothedAreaRatio = 0;      // 平滑后的面积占比（IIR 低通）
+    this.estimatedDistance = 1.0;     // 估算距离因子 (0=很近, 1=很远)
+    
+    // === 运动检测（用于涡流触发） ===
+    this.prevMaskArea = 0;           // 上一帧蒙版面积（像素数）
+    this.prevCenterX = 0.5;          // 上一帧蒙版重心 X（归一化）
+    this.prevCenterY = 0.5;          // 上一帧蒙版重心 Y
+    this.motionIntensity = 0;        // 运动强度 (0~1)，指数衰减
+    this.motionDirection = 0;        // 运动方向（弧度）
+    this.bigMotionEvent = null;      // 大动作事件 { cx, cy, intensity, direction }
+    this._motionSmoothed = 0;        // 平滑后的运动量
+    this._motionThreshold = 0.025;   // 触发大动作的阈值
+    this._motionDecay = 0.92;        // 运动强度衰减系数
+    
     // 屏幕尺寸
     this.screenW = window.innerWidth;
     this.screenH = window.innerHeight;
@@ -183,6 +199,70 @@ class BodyCollisionDetector {
       this.lastUpdateTime = performance.now();
       return;
     }
+    
+    // === 运动检测 ===
+    // 计算蒙版重心
+    let sumX = 0, sumY = 0;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (tempMask[y * w + x] === 1) {
+          sumX += x;
+          sumY += y;
+        }
+      }
+    }
+    const curCenterX = bodyPixelCount > 0 ? (sumX / bodyPixelCount) / w : 0.5;
+    const curCenterY = bodyPixelCount > 0 ? (sumY / bodyPixelCount) / h : 0.5;
+    
+    if (this.prevMaskArea > 0 && bodyPixelCount > 0) {
+      // 面积变化率（归一化到总像素）
+      const areaDelta = Math.abs(bodyPixelCount - this.prevMaskArea) / total;
+      // 重心偏移（归一化距离）
+      const dCX = curCenterX - this.prevCenterX;
+      const dCY = curCenterY - this.prevCenterY;
+      const centerDist = Math.sqrt(dCX * dCX + dCY * dCY);
+      
+      // 综合运动量 = 面积变化 + 重心偏移（加权）
+      const rawMotion = areaDelta * 2.0 + centerDist * 3.0;
+      
+      // 平滑：IIR 低通滤波
+      this._motionSmoothed = this._motionSmoothed * 0.6 + rawMotion * 0.4;
+      
+      // 衰减
+      this.motionIntensity *= this._motionDecay;
+      
+      // 检测大动作
+      if (this._motionSmoothed > this._motionThreshold) {
+        const intensity = Math.min(1.0, this._motionSmoothed / 0.12);
+        this.motionIntensity = Math.max(this.motionIntensity, intensity);
+        this.motionDirection = Math.atan2(dCY, dCX);
+        
+        // 触发大动作事件（外部可以读取并消费）
+        // cx, cy 是人物屏幕中心的归一化坐标（考虑 cover 映射的逆变换）
+        const screenCX = (curCenterX - this._coverOffsetX) / this._coverScaleX;
+        const screenCY = (curCenterY - this._coverOffsetY) / this._coverScaleY;
+        this.bigMotionEvent = {
+          cx: screenCX,
+          cy: screenCY,
+          intensity: intensity,
+          direction: this.motionDirection,
+          // 旋转方向：重心向右移动 → 逆时针(-1)，向左 → 顺时针(1)
+          rotSign: dCX > 0 ? -1 : 1
+        };
+      }
+    }
+    
+    this.prevMaskArea = bodyPixelCount;
+    this.prevCenterX = curCenterX;
+    this.prevCenterY = curCenterY;
+    
+    // === 更新人物距离感知 ===
+    this.bodyAreaRatio = bodyRatio;
+    // IIR 低通滤波平滑，避免面积抖动导致花瓣大小突变
+    this._smoothedAreaRatio = this._smoothedAreaRatio * 0.85 + bodyRatio * 0.15;
+    // 将面积比映射到"距离因子"：面积越大 → 人越近 → 值越小
+    // 典型范围：bodyRatio 0.05(远) ~ 0.5+(很近)
+    this.estimatedDistance = Math.max(0, Math.min(1, 1 - this._smoothedAreaRatio / 0.45));
     
     // 有效帧，更新碰撞数据
     this.maskData = tempMask;

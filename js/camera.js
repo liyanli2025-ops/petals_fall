@@ -142,10 +142,13 @@ class CameraManager {
   }
 
   _updateMirror() {
+    const canvasPerson = document.getElementById('canvas-person');
     if (this.facingMode === 'user') {
       this.video.style.transform = 'scaleX(-1)';
+      if (canvasPerson) canvasPerson.style.transform = 'scaleX(-1)';
     } else {
       this.video.style.transform = '';
+      if (canvasPerson) canvasPerson.style.transform = '';
     }
   }
 

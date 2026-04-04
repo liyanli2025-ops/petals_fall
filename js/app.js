@@ -223,11 +223,13 @@
       if (particles.fps > 0) {
         const restCount = particles.restingCount || 0;
         const restInfo = restCount > 0 ? ` | 停留: ${restCount}` : '';
+        const vortexCount = particles.vortices ? particles.vortices.length : 0;
+        const vortexInfo = vortexCount > 0 ? ` | 涡流: ${vortexCount}` : '';
         const ctxLost = particles._contextLost ? ' | ⚠️CTX LOST' : '';
         const hasRenderer = particles.renderer ? ' | R:✓' : ' | R:✗';
         const meshCount = particles.instancedMeshes ? particles.instancedMeshes.length : 0;
         const glOk = (particles.renderer && particles.renderer.getContext && !particles.renderer.getContext().isContextLost()) ? '' : ' | GL:✗';
-        $fpsCounter.textContent = `FPS:${particles.fps} 瓣:${particles.petalCount} M:${meshCount}${ctxLost}${hasRenderer}${glOk}${restInfo}`;
+        $fpsCounter.textContent = `FPS:${particles.fps} 瓣:${particles.petalCount} M:${meshCount}${ctxLost}${hasRenderer}${glOk}${restInfo}${vortexInfo}`;
       }
 
       // 调试面板：显示相机 up 向量 + 四元数

@@ -139,10 +139,11 @@ class CaptureManager {
       ctx.drawImage(this.canvasMid, 0, 0, w, h);
     }
 
-    // 4. 人物遮罩层
-    if (this.canvasPerson && this.canvasPerson.style.display !== 'none') {
-      ctx.drawImage(this.canvasPerson, 0, 0, w, h);
-    }
+    // 4. 人物遮罩层 — 录制合成时跳过！
+    // canvasPerson 只在屏幕实时显示时用于 CSS z-index 分层（让人物遮挡远景花瓣）。
+    // 合成到单个 canvas 时，底层视频已包含完整人物画面，
+    // 再叠 canvasPerson 会导致人物区域被 alpha blend 两次 → 残影。
+    // 正确的合成顺序：视频 → 远景花瓣 → 中景花瓣 → 近景花瓣（不需要人物遮罩层）。
 
     // 5. 近景花瓣层（CSS blur(4px) 对应 + 降低透明度，更自然的景深虚化）
     if (this.canvasNear.width > 0) {
@@ -404,12 +405,13 @@ class CaptureManager {
     // 尝试添加音频（如果摄像头有音频轨道）
     // 本项目 audio: false，所以一般没有音频
 
-    // 选择编码格式
+    // 选择编码格式（优先 mp4，兼容性更好）
     const mimeTypes = [
+      'video/mp4;codecs=avc1',
+      'video/mp4',
       'video/webm;codecs=vp9',
       'video/webm;codecs=vp8',
       'video/webm',
-      'video/mp4',
     ];
     let selectedMime = '';
     for (const mime of mimeTypes) {
@@ -499,7 +501,7 @@ class CaptureManager {
       return;
     }
 
-    const blob = new Blob(this.recordedChunks, { type: this.recordedChunks[0].type || 'video/webm' });
+    const blob = new Blob(this.recordedChunks, { type: this.recordedChunks[0].type || 'video/mp4' });
     const url = URL.createObjectURL(blob);
 
     if (this._isWeChat()) {
@@ -509,7 +511,7 @@ class CaptureManager {
       // 非微信：直接下载
       const a = document.createElement('a');
       a.href = url;
-      const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
+      const ext = blob.type.includes('webm') ? 'webm' : 'mp4';
       a.download = 'petals_' + this._timestamp() + '.' + ext;
       document.body.appendChild(a);
       a.click();
