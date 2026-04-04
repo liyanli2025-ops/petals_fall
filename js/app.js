@@ -23,6 +23,7 @@
   let gyroscope = null;
   let particles = null;
   let segmentation = null;
+  let bodyCollision = null;
   let capture = null;
   let animationId = null;
   let performanceTuneTimer = null;
@@ -138,26 +139,30 @@
       particles.init();
 
       const isMobile = /Mobi|Android|iPhone/i.test(navigator.userAgent);
-      const initialCount = isMobile ? 1000 : 1200;
+      const initialCount = isMobile ? 2000 : 3000;
       particles.petalCount = initialCount;
       $petalDensity.value = initialCount;
 
-      // 人体分割 — 默认关闭
-      // 该功能会将摄像头中的人物剪影复制到独立 canvas 层，
-      // 遮挡背后的花瓣。但在当前实现中，效果更像"浮动人脸贴纸"，
-      // 体验不佳，暂时禁用。如需启用可取消下方注释。
-      // if (cameraStream) {
-      //   segmentation = new PersonSegmentation();
-      //   const segOk = await segmentation.init();
-      //   if (segOk) {
-      //     segmentation.start();
-      //     debug('人体分割: 已启动');
-      //   } else {
-      //     debug('人体分割: 不可用');
-      //     segmentation = null;
-      //   }
-      // }
-      segmentation = null;
+      // 人体分割 + 花瓣碰撞
+      bodyCollision = new BodyCollisionDetector();
+      
+      if (cameraStream) {
+        segmentation = new PersonSegmentation();
+        const segOk = await segmentation.init();
+        if (segOk) {
+          segmentation.bodyCollision = bodyCollision;
+          segmentation.start();
+          
+          // 注入碰撞检测器到花瓣系统
+          particles.bodyCollision = bodyCollision;
+          
+          debug('人体分割+碰撞: 已启动');
+          document.getElementById('canvas-person').style.display = 'block';
+        } else {
+          debug('人体分割: 不可用，花瓣碰撞关闭');
+          segmentation = null;
+        }
+      }
 
       // === 4. 切换场景 ===
       $scene.classList.remove('hidden');
@@ -196,8 +201,14 @@
   // 动画循环
   // ============================================
   function startAnimationLoop() {
+    let lastTime = performance.now();
+    
     function loop() {
       animationId = requestAnimationFrame(loop);
+      
+      const now = performance.now();
+      const delta = Math.min((now - lastTime) / 1000, 0.05);
+      lastTime = now;
 
       gyroscope.update();
       particles.update(gyroscope.getCameraData());
@@ -208,7 +219,13 @@
       }
 
       if (particles.fps > 0) {
-        $fpsCounter.textContent = `FPS: ${particles.fps} | 花瓣: ${particles.petalCount}`;
+        const restCount = particles.restingCount || 0;
+        const restInfo = restCount > 0 ? ` | 停留: ${restCount}` : '';
+        const ctxLost = particles._contextLost ? ' | ⚠️CTX LOST' : '';
+        const hasRenderer = particles.renderer ? ' | R:✓' : ' | R:✗';
+        const meshCount = particles.instancedMeshes ? particles.instancedMeshes.length : 0;
+        const glOk = (particles.renderer && particles.renderer.getContext && !particles.renderer.getContext().isContextLost()) ? '' : ' | GL:✗';
+        $fpsCounter.textContent = `FPS:${particles.fps} 瓣:${particles.petalCount} M:${meshCount}${ctxLost}${hasRenderer}${glOk}${restInfo}`;
       }
     }
     loop();
@@ -238,12 +255,19 @@
       if (cameraModule) cameraModule.switchCamera();
     });
 
-    $btnToggleCamera.addEventListener('click', () => {
+    // toggleCamera 防抖：touchend + click 可能导致双重触发
+    let toggleCameraTimer = 0;
+    const doToggleCamera = () => {
+      const now = Date.now();
+      if (now - toggleCameraTimer < 500) return;
+      toggleCameraTimer = now;
       if (cameraModule) cameraModule.toggleCamera();
-    });
+    };
+
+    $btnToggleCamera.addEventListener('click', doToggleCamera);
     $btnToggleCamera.addEventListener('touchend', (e) => {
       e.preventDefault();
-      if (cameraModule) cameraModule.toggleCamera();
+      doToggleCamera();
     });
 
     $petalDensity.addEventListener('input', (e) => {
@@ -266,9 +290,12 @@
     });
 
     document.addEventListener('touchstart', (e) => {
-      if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') {
-        e.preventDefault();
+      // 不阻止 UI 按钮及其子元素（SVG/path 等）的触摸
+      const el = e.target;
+      if (el.tagName === 'INPUT' || el.tagName === 'BUTTON' || el.closest('.ui-btn') || el.closest('.petal-control')) {
+        return;
       }
+      e.preventDefault();
     }, { passive: false });
 
     // 三击 FPS

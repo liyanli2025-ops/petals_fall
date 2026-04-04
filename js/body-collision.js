@@ -1,0 +1,322 @@
+/**
+ * 人体碰撞检测模块
+ * 
+ * 基于 SelfieSegmentation 蒙版提取人物轮廓，
+ * 当花瓣的 2D 屏幕投影落在人物轮廓表面时，
+ * 通知粒子系统让花瓣"停留"在身体/手上。
+ * 
+ * 原理：
+ *   1. 将分割蒙版缩小到低分辨率（如 60×80）
+ *   2. 按列扫描找到每列最顶部的人物像素 → 形成"上边缘轮廓线"
+ *   3. 花瓣投影到屏幕后，如果其 y 坐标接近该列的上边缘，判定为碰撞
+ *   4. 同时检测花瓣是否在人物区域内部（手掌上方落入手掌区域）
+ */
+class BodyCollisionDetector {
+  constructor() {
+    // 低分辨率采样的宽高
+    this.sampleW = 60;
+    this.sampleH = 80;
+    
+    // 离屏 canvas 用于采样蒙版
+    this._sampleCanvas = document.createElement('canvas');
+    this._sampleCanvas.width = this.sampleW;
+    this._sampleCanvas.height = this.sampleH;
+    this._sampleCtx = this._sampleCanvas.getContext('2d', { willReadFrequently: true });
+    
+    // 碰撞数据：每列的顶部边缘 y 值（归一化 0~1），-1 表示该列无人物
+    this.topEdge = new Float32Array(this.sampleW).fill(-1);
+    
+    // 人物蒙版的二值数组（用于判断花瓣是否在人物区域内）
+    this.maskData = null;
+    
+    // 碰撞参数
+    this.edgeThreshold = 0.35;    // 判定为"边缘碰撞"的 y 距离阈值（归一化）— 增大以提高灵敏度
+    this.insideEnabled = true;     // 是否也检测人物内部碰撞（花瓣从侧面飘入）
+    
+    // 状态
+    this.hasValidData = false;
+    this.lastUpdateTime = 0;
+    
+    // 屏幕尺寸
+    this.screenW = window.innerWidth;
+    this.screenH = window.innerHeight;
+    
+    // object-fit: cover 映射参数
+    // 蒙版是视频原始比例，屏幕是窗口比例，CSS cover 会裁剪
+    // 需要把屏幕坐标转换成蒙版坐标
+    this._coverOffsetX = 0; // 裁剪偏移（归一化）
+    this._coverOffsetY = 0;
+    this._coverScaleX = 1;  // 映射缩放
+    this._coverScaleY = 1;
+    
+    window.addEventListener('resize', () => {
+      this.screenW = window.innerWidth;
+      this.screenH = window.innerHeight;
+      this._updateCoverMapping();
+    });
+  }
+  
+  /**
+   * 计算 object-fit: cover 的坐标映射
+   * 蒙版内部分辨率 = 视频原始分辨率 (vw × vh)
+   * 屏幕显示区域 = screenW × screenH
+   * CSS cover 会将蒙版裁剪后填满屏幕
+   */
+  _updateCoverMapping() {
+    if (!this._videoW || !this._videoH) return;
+    
+    const vw = this._videoW;
+    const vh = this._videoH;
+    const sw = this.screenW;
+    const sh = this.screenH;
+    
+    const videoRatio = vw / vh;
+    const screenRatio = sw / sh;
+    
+    if (videoRatio > screenRatio) {
+      // 视频更宽 → CSS cover 会裁剪左右
+      // 垂直方向：100% 对齐
+      // 水平方向：视频中间一段映射到屏幕全宽
+      this._coverScaleY = 1;
+      this._coverOffsetY = 0;
+      
+      // 屏幕全高对应蒙版全高
+      // 屏幕全宽对应蒙版中间 (screenRatio/videoRatio) 部分
+      const visibleFractionX = screenRatio / videoRatio;
+      this._coverScaleX = visibleFractionX;
+      this._coverOffsetX = (1 - visibleFractionX) / 2;
+    } else {
+      // 视频更高 → CSS cover 会裁剪上下
+      this._coverScaleX = 1;
+      this._coverOffsetX = 0;
+      
+      const visibleFractionY = videoRatio / screenRatio;
+      this._coverScaleY = visibleFractionY;
+      this._coverOffsetY = (1 - visibleFractionY) / 2;
+    }
+  }
+  
+  /**
+   * 将屏幕坐标转换为蒙版空间的归一化坐标
+   */
+  _screenToMask(screenX, screenY) {
+    const nx = screenX / this.screenW;  // 屏幕归一化 0~1
+    const ny = screenY / this.screenH;
+    
+    // 转换到蒙版空间
+    const mx = this._coverOffsetX + nx * this._coverScaleX;
+    const my = this._coverOffsetY + ny * this._coverScaleY;
+    
+    return { mx, my };
+  }
+  
+  /**
+   * 用分割蒙版更新碰撞数据
+   * @param {HTMLCanvasElement|ImageData|ImageBitmap} mask - 分割蒙版
+   * @param {number} [videoW] - 视频原始宽度（用于 cover 映射）
+   * @param {number} [videoH] - 视频原始高度
+   */
+  updateFromMask(mask, videoW, videoH) {
+    if (!mask) {
+      this.hasValidData = false;
+      return;
+    }
+    
+    // 记录视频尺寸并更新 cover 映射
+    if (videoW && videoH && (this._videoW !== videoW || this._videoH !== videoH)) {
+      this._videoW = videoW;
+      this._videoH = videoH;
+      this._updateCoverMapping();
+    }
+    
+    const ctx = this._sampleCtx;
+    const w = this.sampleW;
+    const h = this.sampleH;
+    
+    // 将蒙版全拉伸到采样 canvas（不做 cover 裁剪）
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(mask, 0, 0, w, h);
+    
+    // 读取像素数据
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const data = imageData.data;
+    
+    // 创建二值蒙版 + 扫描上边缘（先写入临时数组）
+    const tempMask = new Uint8Array(w * h);
+    const tempEdge = new Float32Array(w).fill(-1);
+    
+    let bodyPixelCount = 0;
+    
+    for (let x = 0; x < w; x++) {
+      let foundTop = false;
+      for (let y = 0; y < h; y++) {
+        const idx = (y * w + x) * 4;
+        // MediaPipe 蒙版格式可能不同：
+        //   方式1: RGB通道 — 人物=白色(RGB≈255), 背景=黑色(RGB≈0)
+        //   方式2: Alpha通道 — 人物=alpha≈255, 背景=alpha≈0, RGB全白
+        // 兼容两种方式：取 RGB 亮度和 alpha 中较大的来判断
+        const brightness = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
+        const alpha = data[idx + 3];
+        const isBody = brightness > 128 || (alpha > 128 && brightness > 50);
+        tempMask[y * w + x] = isBody ? 1 : 0;
+        
+        if (isBody) bodyPixelCount++;
+        
+        if (isBody && !foundTop) {
+          tempEdge[x] = y / h; // 归一化
+          foundTop = true;
+        }
+      }
+    }
+    
+    // 如果人物像素太少（< 0.5%），跳过此帧，保留上一帧的有效数据
+    const total = w * h;
+    const bodyRatio = bodyPixelCount / total;
+    if (bodyRatio < 0.005 && this.hasValidData) {
+      // 调试日志
+      if (!this._debugCount) this._debugCount = 0;
+      this._debugCount++;
+      if (this._debugCount <= 5) {
+        console.log(`[碰撞#${this._debugCount}] 跳过空帧: ${bodyPixelCount}/${total} (${(bodyRatio*100).toFixed(1)}%), 保留上一帧数据`);
+      }
+      this.lastUpdateTime = performance.now();
+      return;
+    }
+    
+    // 有效帧，更新碰撞数据
+    this.maskData = tempMask;
+    this.topEdge.set(tempEdge);
+    
+    // 调试日志（前5帧）
+    if (!this._debugCount) this._debugCount = 0;
+    this._debugCount++;
+    if (this._debugCount <= 5) {
+      const ratio = (bodyRatio * 100).toFixed(1);
+      console.log(`[碰撞#${this._debugCount}] 蒙版: ${bodyPixelCount}/${total} 像素为人物 (${ratio}%)`);
+      console.log(`[碰撞#${this._debugCount}] 蒙版源尺寸: ${mask.width || '?'}×${mask.height || '?'}, 视频: ${this._videoW}×${this._videoH}, 屏幕: ${this.screenW}×${this.screenH}`);
+      console.log(`[碰撞#${this._debugCount}] cover映射: offsetX=${this._coverOffsetX.toFixed(3)} offsetY=${this._coverOffsetY.toFixed(3)} scaleX=${this._coverScaleX.toFixed(3)} scaleY=${this._coverScaleY.toFixed(3)}`);
+      
+      // 采样前10个像素的 RGBA 看看蒙版格式
+      if (this._debugCount === 1) {
+        const samples = [];
+        for (let i = 0; i < Math.min(10, data.length / 4); i++) {
+          samples.push(`(${data[i*4]},${data[i*4+1]},${data[i*4+2]},${data[i*4+3]})`);
+        }
+        console.log(`[碰撞] 前10像素RGBA: ${samples.join(' ')}`);
+        
+        // 中间行采样
+        const midRow = Math.floor(h / 2);
+        const midSamples = [];
+        for (let x = 0; x < w; x += 5) {
+          const idx2 = (midRow * w + x) * 4;
+          const b2 = Math.round((data[idx2] + data[idx2+1] + data[idx2+2]) / 3);
+          midSamples.push(b2);
+        }
+        console.log(`[碰撞] 中间行亮度(每5列): ${midSamples.join(',')}`);
+      }
+      
+      const bodyCols = [];
+      let minEdgeY = 1, maxEdgeY = 0;
+      for (let x = 0; x < w; x++) {
+        if (this.topEdge[x] >= 0) {
+          bodyCols.push(x);
+          minEdgeY = Math.min(minEdgeY, this.topEdge[x]);
+          maxEdgeY = Math.max(maxEdgeY, this.topEdge[x]);
+        }
+      }
+      if (bodyCols.length > 0) {
+        console.log(`[碰撞#${this._debugCount}] 有人物的列: ${bodyCols[0]}~${bodyCols[bodyCols.length-1]} (共${bodyCols.length}/${w}列), topEdge范围: ${minEdgeY.toFixed(3)}~${maxEdgeY.toFixed(3)}`);
+      } else {
+        console.log(`[碰撞#${this._debugCount}] ⚠️ 没有检测到任何人物列！`);
+      }
+    }
+    
+    // 平滑上边缘（3 像素窗口中值滤波，减少噪声跳变）
+    const smoothed = new Float32Array(w);
+    for (let x = 0; x < w; x++) {
+      const left = x > 0 ? this.topEdge[x - 1] : this.topEdge[x];
+      const center = this.topEdge[x];
+      const right = x < w - 1 ? this.topEdge[x + 1] : this.topEdge[x];
+      
+      // 如果当前列无人物但相邻有，跳过
+      if (center < 0) {
+        smoothed[x] = -1;
+        continue;
+      }
+      
+      const vals = [left, center, right].filter(v => v >= 0);
+      vals.sort((a, b) => a - b);
+      smoothed[x] = vals[Math.floor(vals.length / 2)];
+    }
+    this.topEdge.set(smoothed);
+    
+    this.hasValidData = true;
+    this.lastUpdateTime = performance.now();
+  }
+  
+  /**
+   * 检测一个屏幕坐标点是否与人体碰撞
+   * @param {number} screenX - 屏幕 x 坐标（像素）
+   * @param {number} screenY - 屏幕 y 坐标（像素）
+   * @returns {{ hit: boolean, type: string, surfaceY: number }}
+   *   hit: 是否碰撞
+   *   type: 'edge'（边缘碰撞）或 'inside'（内部碰撞）
+   *   surfaceY: 碰撞表面的归一化 y 坐标
+   */
+  testPoint(screenX, screenY) {
+    if (!this.hasValidData) return { hit: false, type: 'none', surfaceY: 0 };
+    
+    // 屏幕坐标 → 蒙版空间归一化坐标（考虑 object-fit: cover 裁剪）
+    const { mx, my } = this._screenToMask(screenX, screenY);
+    
+    // 映射到采样网格
+    const col = Math.floor(mx * this.sampleW);
+    if (col < 0 || col >= this.sampleW) return { hit: false, type: 'none', surfaceY: 0 };
+    
+    const edgeY = this.topEdge[col];
+    if (edgeY < 0) return { hit: false, type: 'none', surfaceY: 0 };
+    
+    // 边缘碰撞：花瓣 y 接近上边缘（从上方落入）
+    const dy = my - edgeY;
+    if (dy >= -this.edgeThreshold && dy <= this.edgeThreshold * 2) {
+      return { hit: true, type: 'edge', surfaceY: edgeY };
+    }
+    
+    // 内部碰撞：花瓣已经在人物区域内
+    if (this.insideEnabled && dy > 0) {
+      const row = Math.floor(my * this.sampleH);
+      if (row >= 0 && row < this.sampleH) {
+        const isInside = this.maskData[row * this.sampleW + col] === 1;
+        if (isInside) {
+          return { hit: true, type: 'inside', surfaceY: edgeY };
+        }
+      }
+    }
+    
+    return { hit: false, type: 'none', surfaceY: 0 };
+  }
+  
+  /**
+   * 检查某个屏幕坐标是否在人物区域内
+   */
+  isInsideBody(screenX, screenY) {
+    if (!this.hasValidData || !this.maskData) return false;
+    
+    const { mx, my } = this._screenToMask(screenX, screenY);
+    
+    const col = Math.floor(mx * this.sampleW);
+    const row = Math.floor(my * this.sampleH);
+    
+    if (col < 0 || col >= this.sampleW || row < 0 || row >= this.sampleH) return false;
+    
+    return this.maskData[row * this.sampleW + col] === 1;
+  }
+  
+  /**
+   * 数据是否有效（人体分割是否在运行）
+   */
+  get isActive() {
+    // 如果超过 2 秒没更新，认为无效
+    return this.hasValidData && (performance.now() - this.lastUpdateTime < 2000);
+  }
+}

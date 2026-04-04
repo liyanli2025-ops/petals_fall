@@ -199,34 +199,34 @@ html, body {
   pointer-events: none;
 }
 
-/* 远景花瓣：z-index 2，轻微模糊 */
+/* 远景花瓣：z-index 1，在人物后面，轻微模糊 */
 .layer-far {
-  z-index: 2;
-  filter: blur(2px);
-  -webkit-filter: blur(2px);
+  z-index: 1;
+  filter: blur(1px);
+  -webkit-filter: blur(1px);
 }
 
-/* 中景花瓣：z-index 3，清晰焦点 */
+/* 中景花瓣：z-index 3，在人物前面，清晰 */
 .layer-mid {
   z-index: 3;
 }
 
-/* 人物遮罩层：z-index 4，遮挡中景+远景花瓣（默认隐藏，人体分割功能暂未启用） */
+/* 人物遮罩层：z-index 2（与远景同级，在中景和近景后面） */
 .person-layer {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  z-index: 4;
+  z-index: 2;
   pointer-events: none;
-  display: none;
+  object-fit: cover;
 }
 
 /* 近景花瓣：z-index 5，高斯模糊（景深虚化） */
 .layer-near {
   z-index: 5;
-  filter: blur(6px);
-  -webkit-filter: blur(6px);
+  filter: blur(4px);
+  -webkit-filter: blur(4px);
 }
 
 /* ============================================

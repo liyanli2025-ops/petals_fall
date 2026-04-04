@@ -37,15 +37,42 @@ class CaptureManager {
     this.$flash = document.getElementById('capture-flash');
     this.$toast = document.getElementById('capture-toast');
 
-    this.$btnPhoto.addEventListener('click', () => this.takePhoto());
-    this.$btnRecord.addEventListener('click', () => this.toggleRecording());
+    // 同时绑定 click 和 touchend（iOS Safari 兼容），用防重避免双触发
+    let lastPhotoTime = 0;
+    const photoHandler = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const now = Date.now();
+      if (now - lastPhotoTime < 500) return; // 500ms 防重
+      lastPhotoTime = now;
+      this.takePhoto();
+    };
+    this.$btnPhoto.addEventListener('click', photoHandler);
+    this.$btnPhoto.addEventListener('touchend', photoHandler);
+
+    let lastRecordTime = 0;
+    const recordHandler = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const now = Date.now();
+      if (now - lastRecordTime < 500) return;
+      lastRecordTime = now;
+      this.toggleRecording();
+    };
+    this.$btnRecord.addEventListener('click', recordHandler);
+    this.$btnRecord.addEventListener('touchend', recordHandler);
 
     this._resize();
     window.addEventListener('resize', () => this._resize());
   }
 
   _resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // 拍照时用高清分辨率，录像时重新设置为 1x
+    this._updateCanvasSize();
+  }
+
+  _updateCanvasSize() {
+    const dpr = this.isRecording ? 1 : Math.min(window.devicePixelRatio || 1, 2);
     this.compositeCanvas.width = window.innerWidth * dpr;
     this.compositeCanvas.height = window.innerHeight * dpr;
   }
@@ -114,6 +141,12 @@ class CaptureManager {
   // 拍照
   // ============================================
   takePhoto() {
+    // 拍照用高清分辨率
+    if (this.isRecording) {
+      // 录像中不改尺寸，直接截帧
+    } else {
+      this._updateCanvasSize();
+    }
     this._composite();
 
     // 闪光效果
@@ -239,6 +272,9 @@ class CaptureManager {
   }
 
   startRecording() {
+    // 录像用 1x 分辨率，避免性能瓶颈
+    this._updateCanvasSize();
+
     // 从合成 canvas 获取媒体流
     const stream = this.compositeCanvas.captureStream(30);
 
@@ -312,6 +348,7 @@ class CaptureManager {
     }
     this.isRecording = false;
     this._resetRecordingUI();
+    this._updateCanvasSize(); // 恢复高清分辨率
     this._showToast('正在保存视频...');
   }
 

@@ -20,6 +20,9 @@ class PersonSegmentation {
     this.lastMask = null;
     this.frameSkip = 0;
     this.frameCount = 0;
+    
+    // 碰撞检测器引用（外部注入）
+    this.bodyCollision = null;
   }
 
   async init() {
@@ -31,6 +34,15 @@ class PersonSegmentation {
     try {
       this.segmenter = new SelfieSegmentation({
         locateFile: (file) => {
+          // 优先使用 CDN 绝对路径（部署后相对路径会 404）
+          // 检测是否在 CDN 域名下（部署环境）
+          const href = window.location.href;
+          if (href.includes('qq.com') || href.includes('gtimg.com')) {
+            // 部署环境：使用 CDN 路径
+            const cdnBase = 'https://mat1.gtimg.com/qqcdn/redian/petals_fall_test/libs/mediapipe/';
+            return cdnBase + file;
+          }
+          // 本地开发环境：使用相对路径
           return `libs/mediapipe/${file}`;
         }
       });
@@ -61,8 +73,9 @@ class PersonSegmentation {
   }
 
   _resize() {
-    this.canvas.width = window.innerWidth;
-    this.canvas.height = window.innerHeight;
+    // canvas 的内部分辨率在 _drawMask 中动态设为视频原始分辨率
+    // CSS object-fit: cover 负责显示裁剪
+    // 这里不再需要设置 canvas 尺寸
   }
 
   /**
@@ -98,30 +111,53 @@ class PersonSegmentation {
     if (!results.segmentationMask) return;
     this.lastMask = results.segmentationMask;
     this._drawMask(results.segmentationMask);
+    
+    // 更新碰撞检测器（传入视频尺寸用于 cover 坐标映射）
+    if (this.bodyCollision) {
+      const vw = this.video.videoWidth || 0;
+      const vh = this.video.videoHeight || 0;
+      this.bodyCollision.updateFromMask(results.segmentationMask, vw, vh);
+    }
   }
 
   /**
-   * 将人物区域从摄像头画面中抠出来，绘制到人物遮罩 canvas
-   * 关键：始终从 this.video 实时取帧，不会残留旧画面
+   * 将人物区域绘制为遮挡层
+   * 
+   * 关键改进：蒙版和视频都全拉伸到 canvas（不做 JS 层面的 cover 裁剪）
+   * canvas 通过 CSS object-fit: cover 实现和 video 标签一致的裁剪对齐
+   * 
+   * 这样做的好处：
+   *   1. 蒙版尺寸（如 256×256）和视频尺寸（如 1280×720）不同也没关系
+   *   2. 碰撞检测器也可以直接全拉伸采样蒙版，不需要 crop 参数
+   *   3. CSS object-fit: cover 会自动让 canvas 和 video 对齐
    */
   _drawMask(mask) {
     const ctx = this.ctx;
-    const w = this.canvas.width;
-    const h = this.canvas.height;
+    const vw = this.video.videoWidth || this.canvas.width;
+    const vh = this.video.videoHeight || this.canvas.height;
+
+    // canvas 内部分辨率设为视频原始分辨率
+    // 这样全拉伸绘制后，CSS object-fit: cover 的裁剪效果和 video 标签完全一致
+    if (this.canvas.width !== vw || this.canvas.height !== vh) {
+      this.canvas.width = vw;
+      this.canvas.height = vh;
+    }
 
     // 彻底清空
-    ctx.clearRect(0, 0, w, h);
+    ctx.clearRect(0, 0, vw, vh);
 
     // 确保 video 有画面
     if (this.video.readyState < 2) return;
 
-    // 第一步：画遮罩（白色=人物，黑色=背景）
+    // 第一步：画蒙版（白色=人物，黑色=背景）
+    // 全拉伸 — 不做 cover 裁剪
     ctx.globalCompositeOperation = 'source-over';
-    ctx.drawImage(mask, 0, 0, w, h);
+    ctx.drawImage(mask, 0, 0, vw, vh);
 
-    // 第二步：source-in 模式，只保留人物区域的当前视频帧
+    // 第二步：source-in 模式，用视频帧填充人物区域
+    // 视频也全拉伸（视频尺寸 == canvas 尺寸，所以 1:1 映射）
     ctx.globalCompositeOperation = 'source-in';
-    ctx.drawImage(this.video, 0, 0, w, h);
+    ctx.drawImage(this.video, 0, 0, vw, vh);
 
     // 重置合成模式
     ctx.globalCompositeOperation = 'source-over';

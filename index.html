@@ -24,26 +24,26 @@
     <div class="landing-petals" id="landing-petals"></div>
   </div>
 
-  <!-- 主场景 — 多层架构实现景深+人物遮挡 -->
+  <!-- 主场景 — 单WebGL架构（避免多context被浏览器回收） -->
   <div id="scene" class="scene hidden">
     <!-- 层级从后到前：
       1. 摄像头视频 / 降级背景
-      2. 远景花瓣层（轻微模糊）
-      3. 中景花瓣层（清晰焦点）
-      4. 人物遮罩层（人体轮廓覆盖在花瓣之上）
-      5. 近景花瓣层（强模糊，在人物前面）
-      6. UI 控制层
+      2. 花瓣层（单WebGL，所有远/中/近花瓣）
+      3. 人物遮罩层（人体轮廓覆盖在花瓣之上）
+      4. UI 控制层
     -->
     <video id="camera-video" autoplay playsinline muted></video>
     <div id="fallback-bg" class="fallback-bg hidden"></div>
 
-    <!-- 远景花瓣 -->
+    <!-- 隐藏的 WebGL 渲染目标（单 context） -->
+    <canvas id="canvas-petals" style="display:none;"></canvas>
+    <!-- 远景花瓣（2D，CSS blur） -->
     <canvas id="canvas-far" class="petal-layer layer-far"></canvas>
-    <!-- 中景花瓣 -->
+    <!-- 中景花瓣（2D，清晰） -->
     <canvas id="canvas-mid" class="petal-layer layer-mid"></canvas>
-    <!-- 人物遮罩（摄像头画面中人物部分的复制，遮挡中景+远景花瓣） -->
+    <!-- 人物遮罩（摄像头画面中人物部分的复制，遮挡花瓣） -->
     <canvas id="canvas-person" class="person-layer"></canvas>
-    <!-- 近景花瓣（CSS blur 模糊） -->
+    <!-- 近景花瓣（2D，CSS blur） -->
     <canvas id="canvas-near" class="petal-layer layer-near"></canvas>
 
     <!-- UI -->
@@ -75,7 +75,7 @@
       </button>
       <div id="petal-count-control" class="petal-control">
         <label>花瓣密度</label>
-        <input type="range" id="petal-density" min="100" max="2000" value="800" step="10">
+        <input type="range" id="petal-density" min="200" max="5000" value="3000" step="50">
       </div>
     </div>
     <div id="fps-counter" class="fps-counter"></div>
@@ -93,6 +93,7 @@
   <script src="libs/mediapipe/selfie_segmentation.js"></script>
   <script src="js/camera.js"></script>
   <script src="js/segmentation.js"></script>
+  <script src="js/body-collision.js"></script>
   <script src="js/particles.js"></script>
   <script src="js/gyroscope.js"></script>
   <script src="js/capture.js"></script>
