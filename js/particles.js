@@ -44,15 +44,16 @@ class PetalParticleSystem {
     this.ready = false;
 
     // 8 个逻辑层，映射到 3 个渲染层
+    // 减少远景碎片比例，增加中近景可辨认花瓣
     this.layerConfig = {
-      dust:     { ratio: 0.18, scaleMin: 0.05, scaleMax: 0.12, radiusMin: 16, radiusMax: 25, renderLayer: 'far',  fallMult: 0.7  },
-      veryFar:  { ratio: 0.20, scaleMin: 0.10, scaleMax: 0.20, radiusMin: 12, radiusMax: 18, renderLayer: 'far',  fallMult: 0.8  },
-      far:      { ratio: 0.16, scaleMin: 0.18, scaleMax: 0.35, radiusMin: 8,  radiusMax: 13, renderLayer: 'far',  fallMult: 0.9  },
-      midFar:   { ratio: 0.12, scaleMin: 0.30, scaleMax: 0.50, radiusMin: 5,  radiusMax: 9,  renderLayer: 'mid',  fallMult: 1.0  },
-      mid:      { ratio: 0.12, scaleMin: 0.40, scaleMax: 0.65, radiusMin: 3,  radiusMax: 6,  renderLayer: 'mid',  fallMult: 1.0  },
-      midNear:  { ratio: 0.08, scaleMin: 0.50, scaleMax: 0.75, radiusMin: 2,  radiusMax: 4,  renderLayer: 'mid',  fallMult: 1.05 },
-      near:     { ratio: 0.08, scaleMin: 0.55, scaleMax: 0.85, radiusMin: 1.5,radiusMax: 3.5,renderLayer: 'near', fallMult: 1.1  },
-      veryNear: { ratio: 0.06, scaleMin: 0.80, scaleMax: 1.30, radiusMin: 0.8,radiusMax: 2.0,renderLayer: 'near', fallMult: 1.15 },
+      dust:     { ratio: 0.08, scaleMin: 0.08, scaleMax: 0.15, radiusMin: 16, radiusMax: 25, renderLayer: 'far',  fallMult: 0.7  },
+      veryFar:  { ratio: 0.12, scaleMin: 0.15, scaleMax: 0.25, radiusMin: 12, radiusMax: 18, renderLayer: 'far',  fallMult: 0.8  },
+      far:      { ratio: 0.14, scaleMin: 0.22, scaleMax: 0.40, radiusMin: 8,  radiusMax: 13, renderLayer: 'far',  fallMult: 0.9  },
+      midFar:   { ratio: 0.14, scaleMin: 0.35, scaleMax: 0.55, radiusMin: 6,  radiusMax: 12, renderLayer: 'mid',  fallMult: 1.0  },
+      mid:      { ratio: 0.16, scaleMin: 0.45, scaleMax: 0.70, radiusMin: 4,  radiusMax: 9,  renderLayer: 'mid',  fallMult: 1.0  },
+      midNear:  { ratio: 0.12, scaleMin: 0.55, scaleMax: 0.80, radiusMin: 3,  radiusMax: 6,  renderLayer: 'mid',  fallMult: 1.05 },
+      near:     { ratio: 0.14, scaleMin: 0.60, scaleMax: 0.90, radiusMin: 2,  radiusMax: 5,  renderLayer: 'near', fallMult: 1.1  },
+      veryNear: { ratio: 0.10, scaleMin: 0.85, scaleMax: 1.30, radiusMin: 1.2,radiusMax: 3.0,renderLayer: 'near', fallMult: 1.15 },
     };
 
     // InstancedMesh 按渲染层分组：renderMeshes[renderLayer][matIndex]
@@ -178,6 +179,7 @@ class PetalParticleSystem {
   }
 
   _loadPetalAssets() {
+    // 近景花瓣形状（高细分，有弯曲效果）
     const petalShapes = [
       { w: 0.50, h: 0.35, bendX: 0.12, bendY: 0.06, curl: 0.05, twist: 0.03 },
       { w: 0.44, h: 0.44, bendX: 0.15, bendY: 0.08, curl: 0.07, twist: 0.02 },
@@ -185,7 +187,7 @@ class PetalParticleSystem {
       { w: 0.40, h: 0.28, bendX: 0.10, bendY: 0.05, curl: 0.04, twist: 0.05 },
     ];
     petalShapes.forEach(cfg => {
-      const geo = new THREE.PlaneGeometry(cfg.w, cfg.h, 12, 12);
+      const geo = new THREE.PlaneGeometry(cfg.w, cfg.h, 8, 8);
       const pos = geo.attributes.position;
       for (let i = 0; i < pos.count; i++) {
         const x = pos.getX(i), y = pos.getY(i);
@@ -202,6 +204,9 @@ class PetalParticleSystem {
       this.petalGeometries.push(geo);
     });
 
+    // 远景花瓣材质（MeshBasicMaterial，无光照计算，纯贴图更干净）
+    this.farPetalMaterials = [];
+
     let loadedCount = 0;
     const total = this.petalTexturePaths.length;
     this.petalTexturePaths.forEach((path) => {
@@ -215,12 +220,19 @@ class PetalParticleSystem {
       if (texture.colorSpace !== undefined) texture.colorSpace = THREE.SRGBColorSpace;
       texture.minFilter = THREE.LinearMipmapLinearFilter;
       texture.magFilter = THREE.LinearFilter;
+      // 近景材质（PhysicalMaterial，有光照质感）
       const mat = new THREE.MeshPhysicalMaterial({
-        map: texture, side: THREE.DoubleSide, transparent: true, alphaTest: 0.05,
+        map: texture, side: THREE.DoubleSide, transparent: true, alphaTest: 0.2,
         opacity: 0.95, roughness: 0.55, metalness: 0.0, clearcoat: 0.08,
-        clearcoatRoughness: 0.4, transmission: 0.2, thickness: 0.35, depthWrite: false,
+        clearcoatRoughness: 0.4, transmission: 0.05, thickness: 0.35, depthWrite: false,
       });
       this.petalMaterials.push(mat);
+      // 远景材质（BasicMaterial，纯贴图，alphaTest 更高裁掉边缘噪点）
+      const farMat = new THREE.MeshBasicMaterial({
+        map: texture, side: THREE.DoubleSide, transparent: true, alphaTest: 0.35,
+        opacity: 0.9, depthWrite: false,
+      });
+      this.farPetalMaterials.push(farMat);
     });
   }
 
@@ -247,10 +259,13 @@ class PetalParticleSystem {
       const perMat = Math.ceil(count / numMaterials) + 10;
       this.maxInstancesPerMesh = Math.max(this.maxInstancesPerMesh, perMat);
       this.renderMeshes[renderKey] = [];
+      // 远景层用 farPetalMaterials（BasicMaterial，更干净）
+      const mats = (renderKey === 'far' && this.farPetalMaterials && this.farPetalMaterials.length > 0)
+        ? this.farPetalMaterials : this.petalMaterials;
 
       for (let mi = 0; mi < numMaterials; mi++) {
         const geo = this.petalGeometries[mi % this.petalGeometries.length];
-        const mesh = new THREE.InstancedMesh(geo, this.petalMaterials[mi], perMat);
+        const mesh = new THREE.InstancedMesh(geo, mats[mi], perMat);
         mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         mesh.frustumCulled = false;
         mesh.count = 0;
@@ -283,21 +298,30 @@ class PetalParticleSystem {
       if (this.clusters.length > 0 && Math.random() < 0.6) {
         const cluster = this.clusters[Math.floor(Math.random() * this.clusters.length)];
         px = cluster.x + (Math.random() - 0.5) * cluster.radius * 2;
-        py = Math.abs(cluster.y) + Math.random() * 5;
+        py = cluster.y + (Math.random() - 0.5) * cluster.radius * 2;
         pz = cluster.z + (Math.random() - 0.5) * cluster.radius * 2;
         const dist = Math.sqrt(px * px + py * py + pz * pz);
-        if (dist > this.worldRadius) { const s = this.worldRadius / dist * 0.9; px *= s; py = Math.abs(py * s); pz *= s; }
+        if (dist > this.worldRadius) { const s = this.worldRadius / dist * 0.9; px *= s; py *= s; pz *= s; }
       } else {
+        // 球形均匀分布
         const phi = Math.random() * Math.PI * 2;
-        const r = Math.sqrt(Math.random()) * radius;
-        px = Math.cos(phi) * r; py = Math.random() * radius; pz = Math.sin(phi) * r;
+        const cosTheta = 2 * Math.random() - 1;
+        const sinTheta = Math.sqrt(1 - cosTheta * cosTheta);
+        const r = Math.cbrt(Math.random()) * radius;
+        px = sinTheta * Math.cos(phi) * r;
+        py = sinTheta * Math.sin(phi) * r;
+        pz = cosTheta * r;
       }
     } else {
+      // recycle 时也用球形分布，偏向上半球（保证持续有花瓣从上方落入）
       const phi = Math.random() * Math.PI * 2;
-      const r = Math.sqrt(Math.random()) * radius;
-      px = this.cameraWorldPos.x + Math.cos(phi) * r;
-      py = this.cameraWorldPos.y + (0.5 + Math.random() * 0.5) * radius;
-      pz = this.cameraWorldPos.z + Math.sin(phi) * r;
+      // cosTheta 范围 [0, 1]，即上半球
+      const cosTheta = Math.random();
+      const sinTheta = Math.sqrt(1 - cosTheta * cosTheta);
+      const r = (0.5 + Math.random() * 0.5) * radius;
+      px = this.cameraWorldPos.x + sinTheta * Math.cos(phi) * r;
+      py = this.cameraWorldPos.y + cosTheta * r;
+      pz = this.cameraWorldPos.z + sinTheta * Math.sin(phi) * r;
     }
     const petalIndex = this.petalData.length;
     const petal = {
@@ -305,9 +329,9 @@ class PetalParticleSystem {
       px, py, pz,
       rx: Math.random() * Math.PI * 2, ry: Math.random() * Math.PI * 2, rz: Math.random() * Math.PI * 2,
       scale,
-      rotSpeedX: (Math.random() - 0.5) * (1.8 / Math.max(scale, 0.3)),
-      rotSpeedY: (Math.random() - 0.5) * (1.5 / Math.max(scale, 0.3)),
-      rotSpeedZ: (Math.random() - 0.5) * (0.9 / Math.max(scale, 0.3)),
+      rotSpeedX: (Math.random() - 0.5) * 1.2,
+      rotSpeedY: (Math.random() - 0.5) * 1.0,
+      rotSpeedZ: (Math.random() - 0.5) * 0.6,
       fallSpeed: this.fallSpeed * (0.3 + Math.random() * 0.7) * (cfg.fallMult || 1.0),
       swayAmplitude: 0.6 + Math.random() * 1.5, swayFrequency: 0.4 + Math.random() * 0.9,
       swayPhase: Math.random() * Math.PI * 2,
@@ -328,16 +352,18 @@ class PetalParticleSystem {
   _recyclePetalData(petal) {
     const cfg = this.layerConfig[petal.layerKey];
     const radius = cfg.radiusMin + Math.random() * (cfg.radiusMax - cfg.radiusMin);
+    // 球形上半球分布，花瓣从各个方向生成后往下飘落
     const phi = Math.random() * Math.PI * 2;
-    const r = Math.sqrt(Math.random()) * radius;
-    petal.px = this.cameraWorldPos.x + Math.cos(phi) * r;
-    petal.py = this.cameraWorldPos.y + (0.5 + Math.random() * 0.5) * radius;
-    petal.pz = this.cameraWorldPos.z + Math.sin(phi) * r;
+    const cosTheta = Math.random(); // [0,1] 上半球
+    const sinTheta = Math.sqrt(1 - cosTheta * cosTheta);
+    const r = (0.5 + Math.random() * 0.5) * radius;
+    petal.px = this.cameraWorldPos.x + sinTheta * Math.cos(phi) * r;
+    petal.py = this.cameraWorldPos.y + cosTheta * r;
+    petal.pz = this.cameraWorldPos.z + sinTheta * Math.sin(phi) * r;
     petal.rx = Math.random() * Math.PI * 2; petal.ry = Math.random() * Math.PI * 2; petal.rz = Math.random() * Math.PI * 2;
-    const s = petal.scale;
-    petal.rotSpeedX = (Math.random() - 0.5) * (1.8 / Math.max(s, 0.3));
-    petal.rotSpeedY = (Math.random() - 0.5) * (1.5 / Math.max(s, 0.3));
-    petal.rotSpeedZ = (Math.random() - 0.5) * (0.9 / Math.max(s, 0.3));
+    petal.rotSpeedX = (Math.random() - 0.5) * 1.2;
+    petal.rotSpeedY = (Math.random() - 0.5) * 1.0;
+    petal.rotSpeedZ = (Math.random() - 0.5) * 0.6;
     petal.swayPhase = Math.random() * Math.PI * 2; petal.swayAmplitude = 0.6 + Math.random() * 1.5;
     petal.swayFrequency = 0.4 + Math.random() * 0.9; petal.spiralPhase = Math.random() * Math.PI * 2;
     petal.spiralSpeed = (Math.random() - 0.5) * 1.2;
@@ -477,9 +503,9 @@ class PetalParticleSystem {
       if (p.flipTimer <= 0 && !p.isFlipping) {
         p.isFlipping = true; p.flipEndTime = now + 500;
         const r = Math.random();
-        if (r < 0.33) p.rotSpeedX += (Math.random() > 0.5 ? 1 : -1) * (2.5 + Math.random() * 3.5);
-        else if (r < 0.66) p.rotSpeedY += (Math.random() > 0.5 ? 1 : -1) * (2.5 + Math.random() * 3.5);
-        else p.rotSpeedZ += (Math.random() > 0.5 ? 1 : -1) * (2.5 + Math.random() * 3.5);
+        if (r < 0.33) p.rotSpeedX += (Math.random() > 0.5 ? 1 : -1) * (1.0 + Math.random() * 1.5);
+        else if (r < 0.66) p.rotSpeedY += (Math.random() > 0.5 ? 1 : -1) * (1.0 + Math.random() * 1.5);
+        else p.rotSpeedZ += (Math.random() > 0.5 ? 1 : -1) * (1.0 + Math.random() * 1.5);
         p.flipTimer = p.flipCooldown + Math.random() * 3;
       }
       if (p.isFlipping && now > p.flipEndTime) p.isFlipping = false;
@@ -508,9 +534,9 @@ class PetalParticleSystem {
       const dx = p.px - camX, dy = p.py - camY, dz = p.pz - camZ;
       if (dx*dx + dy*dy + dz*dz > recycleDistSq) this._recyclePetalData(p);
 
-      // 碰撞
-      const canCollide = collisionActive && projCamera &&
-        (p.layerKey === 'midFar' || p.layerKey === 'mid' || p.layerKey === 'midNear' || p.layerKey === 'near');
+      // 碰撞（只对 mid/midNear/near 层，且停留上限 40 片）
+      const canCollide = collisionActive && projCamera && restCount < 40 &&
+        (p.layerKey === 'mid' || p.layerKey === 'midNear' || p.layerKey === 'near');
       if (canCollide) {
         this._projVec.set(p.px, p.py, p.pz); this._projVec.project(projCamera);
         const sx = (this._projVec.x * 0.5 + 0.5) * screenW, sy = (-this._projVec.y * 0.5 + 0.5) * screenH;
@@ -633,6 +659,9 @@ class PetalParticleSystem {
       this.renderer.toneMappingExposure = 1.2;
       if (this.renderer.outputColorSpace !== undefined) this.renderer.outputColorSpace = THREE.SRGBColorSpace;
       for (const mat of this.petalMaterials) { if (mat.map) mat.map.needsUpdate = true; mat.needsUpdate = true; }
+      if (this.farPetalMaterials) {
+        for (const mat of this.farPetalMaterials) { if (mat.map) mat.map.needsUpdate = true; mat.needsUpdate = true; }
+      }
       for (const geo of this.petalGeometries) {
         if (geo.attributes.position) geo.attributes.position.needsUpdate = true;
         if (geo.attributes.normal) geo.attributes.normal.needsUpdate = true;
@@ -649,7 +678,9 @@ class PetalParticleSystem {
         this.renderMeshes[renderKey] = [];
         for (let mi = 0; mi < numMaterials; mi++) {
           const geo = this.petalGeometries[mi % this.petalGeometries.length];
-          const mesh = new THREE.InstancedMesh(geo, this.petalMaterials[mi], perMat);
+          const mats = (renderKey === 'far' && this.farPetalMaterials && this.farPetalMaterials.length > 0)
+            ? this.farPetalMaterials : this.petalMaterials;
+          const mesh = new THREE.InstancedMesh(geo, mats[mi], perMat);
           mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
           mesh.frustumCulled = false; mesh.count = 0;
           this.scene.add(mesh); this.renderMeshes[renderKey].push(mesh);
@@ -669,6 +700,7 @@ class PetalParticleSystem {
     if (this.renderer) this.renderer.dispose();
     this.petalGeometries.forEach(g => g.dispose());
     this.petalMaterials.forEach(m => { if (m.map) m.map.dispose(); m.dispose(); });
+    if (this.farPetalMaterials) this.farPetalMaterials.forEach(m => { m.dispose(); });
     this.petalData = [];
   }
 }

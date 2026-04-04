@@ -145,30 +145,18 @@ class GyroscopeManager {
 
   /**
    * 从 DeviceOrientation 的 alpha/beta/gamma 构建设备四元数
-   * 标准算法：ZXY 内旋 + 屏幕朝向补偿
-   * 参考：W3C DeviceOrientation spec / Three.js DeviceOrientationControls
+   * 使用 Three.js DeviceOrientationControls 标准算法
+   * 参考：Three.js r152 DeviceOrientationControls.js
    */
   _deviceOrientationToQuaternion(alpha, beta, gamma) {
     const degToRad = Math.PI / 180;
-    const a = alpha * degToRad; // Z 轴
-    const b = beta * degToRad;  // X' 轴
-    const g = gamma * degToRad; // Y'' 轴
 
-    // ZXY 内旋四元数
-    const c1 = Math.cos(b / 2);
-    const s1 = Math.sin(b / 2);
-    const c2 = Math.cos(g / 2);
-    const s2 = Math.sin(g / 2);
-    const c3 = Math.cos(a / 2);
-    const s3 = Math.sin(a / 2);
+    // 使用 Three.js 标准的 Euler → Quaternion 方式（YXZ 顺序）
+    const euler = new THREE.Euler();
+    euler.set(beta * degToRad, alpha * degToRad, -gamma * degToRad, 'YXZ');
 
     const q = new THREE.Quaternion();
-    q.set(
-      s1 * c2 * c3 - c1 * s2 * s3,
-      c1 * s2 * c3 + s1 * c2 * s3,
-      c1 * c2 * s3 + s1 * s2 * c3,
-      c1 * c2 * c3 - s1 * s2 * s3
-    );
+    q.setFromEuler(euler);
 
     // 补偿手机坐标系到 WebGL 坐标系：
     // 手机竖直时 beta≈90°，需要绕 X 轴旋转 -90° 让 "前方" 对齐屏幕法线

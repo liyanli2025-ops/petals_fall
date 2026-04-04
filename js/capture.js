@@ -28,6 +28,9 @@ class CaptureManager {
     this.canvasMid = document.getElementById('canvas-mid');
     this.canvasNear = document.getElementById('canvas-near');
     this.canvasPerson = document.getElementById('canvas-person');
+
+    // 外部注入 CameraManager 引用（用于判断前置/后置）
+    this.cameraManager = null;
   }
 
   init() {
@@ -88,16 +91,27 @@ class CaptureManager {
     ctx.clearRect(0, 0, w, h);
 
     // 1. 摄像头视频 / 降级背景
-    if (this.video && !this.video.classList.contains('hidden') && this.video.readyState >= 2) {
+    const videoUsable = this.video && !this.video.classList.contains('hidden') &&
+      this.video.readyState >= 2 && this.video.videoWidth > 0;
+    if (videoUsable) {
       // 保持 object-fit: cover 的效果
       const vw = this.video.videoWidth;
       const vh = this.video.videoHeight;
-      if (vw && vh) {
-        const scale = Math.max(w / vw, h / vh);
-        const sw = vw * scale;
-        const sh = vh * scale;
-        const sx = (w - sw) / 2;
-        const sy = (h - sh) / 2;
+      const scale = Math.max(w / vw, h / vh);
+      const sw = vw * scale;
+      const sh = vh * scale;
+      const sx = (w - sw) / 2;
+      const sy = (h - sh) / 2;
+
+      // 前置摄像头需要水平镜像翻转
+      const isFront = this.cameraManager && this.cameraManager.facingMode === 'user';
+      if (isFront) {
+        ctx.save();
+        ctx.translate(w, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(this.video, sx, sy, sw, sh);
+        ctx.restore();
+      } else {
         ctx.drawImage(this.video, sx, sy, sw, sh);
       }
     } else {
@@ -112,14 +126,15 @@ class CaptureManager {
       ctx.fillRect(0, 0, w, h);
     }
 
-    // 2. 远景花瓣层
+    // 2. 远景花瓣层（CSS blur(1px) 对应 + 轻微降透）
     if (this.canvasFar.width > 0) {
-      ctx.filter = 'blur(2px)';
-      ctx.drawImage(this.canvasFar, 0, 0, w, h);
-      ctx.filter = 'none';
+      ctx.save();
+      ctx.globalAlpha = 0.75;
+      this._drawBlurred(ctx, this.canvasFar, w, h, 1);
+      ctx.restore();
     }
 
-    // 3. 中景花瓣层
+    // 3. 中景花瓣层（无模糊）
     if (this.canvasMid.width > 0) {
       ctx.drawImage(this.canvasMid, 0, 0, w, h);
     }
@@ -129,11 +144,102 @@ class CaptureManager {
       ctx.drawImage(this.canvasPerson, 0, 0, w, h);
     }
 
-    // 5. 近景花瓣层
+    // 5. 近景花瓣层（CSS blur(4px) 对应 + 降低透明度，更自然的景深虚化）
     if (this.canvasNear.width > 0) {
-      ctx.filter = 'blur(6px)';
-      ctx.drawImage(this.canvasNear, 0, 0, w, h);
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      this._drawBlurred(ctx, this.canvasNear, w, h, 4);
+      ctx.restore();
+    }
+  }
+
+  /**
+   * 兼容 iOS Safari 的模糊绘制
+   * 一次性检测 ctx.filter 是否真正有效，无效时降级为多次缩放模糊
+   */
+  _drawBlurred(ctx, sourceCanvas, w, h, blurRadius) {
+    // 一次性检测 ctx.filter 是否真正生效
+    if (this._filterSupported === undefined) {
+      this._filterSupported = this._testFilterSupport();
+    }
+
+    if (this._filterSupported) {
+      ctx.filter = `blur(${blurRadius}px)`;
+      ctx.drawImage(sourceCanvas, 0, 0, w, h);
       ctx.filter = 'none';
+      return;
+    }
+
+    // 降级方案：多轮缩放模糊（效果更接近真实 blur）
+    if (!this._blurCanvas) {
+      this._blurCanvas = document.createElement('canvas');
+      this._blurCtx = this._blurCanvas.getContext('2d');
+    }
+    if (!this._blurCanvas2) {
+      this._blurCanvas2 = document.createElement('canvas');
+      this._blurCtx2 = this._blurCanvas2.getContext('2d');
+    }
+
+    // 第1轮：大幅缩小
+    const s1 = Math.max(0.08, 1 / (1 + blurRadius * 1.5));
+    const bw1 = Math.max(2, Math.floor(w * s1));
+    const bh1 = Math.max(2, Math.floor(h * s1));
+    this._blurCanvas.width = bw1;
+    this._blurCanvas.height = bh1;
+    this._blurCtx.imageSmoothingEnabled = true;
+    this._blurCtx.imageSmoothingQuality = 'high';
+    this._blurCtx.drawImage(sourceCanvas, 0, 0, bw1, bh1);
+
+    // 第2轮：放大到中间尺寸（进一步柔化）
+    const midW = Math.floor(w * 0.5);
+    const midH = Math.floor(h * 0.5);
+    this._blurCanvas2.width = midW;
+    this._blurCanvas2.height = midH;
+    this._blurCtx2.imageSmoothingEnabled = true;
+    this._blurCtx2.imageSmoothingQuality = 'high';
+    this._blurCtx2.drawImage(this._blurCanvas, 0, 0, bw1, bh1, 0, 0, midW, midH);
+
+    // 第3轮：放大到目标尺寸
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(this._blurCanvas2, 0, 0, midW, midH, 0, 0, w, h);
+  }
+
+  /**
+   * 检测 Canvas 2D filter 是否真正有效
+   * 原理：画一个红色方块，加 blur(10px) 后检查角落是否有颜色扩散
+   */
+  _testFilterSupport() {
+    try {
+      const testCanvas = document.createElement('canvas');
+      testCanvas.width = 40;
+      testCanvas.height = 40;
+      const testCtx = testCanvas.getContext('2d');
+      if (!testCtx || typeof testCtx.filter === 'undefined') return false;
+
+      // 在中心画一个小红块
+      testCtx.fillStyle = '#ff0000';
+      testCtx.fillRect(15, 15, 10, 10);
+
+      // 用 blur 重新画到另一个 canvas
+      const testCanvas2 = document.createElement('canvas');
+      testCanvas2.width = 40;
+      testCanvas2.height = 40;
+      const testCtx2 = testCanvas2.getContext('2d');
+      testCtx2.filter = 'blur(10px)';
+      testCtx2.drawImage(testCanvas, 0, 0);
+      testCtx2.filter = 'none';
+
+      // 检查角落（0,0）是否有颜色——如果 blur 生效了，红色会扩散到角落
+      const pixel = testCtx2.getImageData(0, 0, 1, 1).data;
+      // 如果 blur 不生效，角落像素是透明的 (0,0,0,0)
+      // 如果 blur 生效了，角落会有一些红色分量
+      const hasBlur = pixel[0] > 0 || pixel[3] > 0;
+      console.log('Canvas filter blur 检测:', hasBlur ? '支持' : '不支持', pixel);
+      return hasBlur;
+    } catch (e) {
+      console.warn('Canvas filter 检测异常:', e);
+      return false;
     }
   }
 
@@ -147,7 +253,14 @@ class CaptureManager {
     } else {
       this._updateCanvasSize();
     }
-    this._composite();
+
+    try {
+      this._composite();
+    } catch (err) {
+      console.error('合成画面失败:', err);
+      this._showToast('拍照失败: 合成出错');
+      return;
+    }
 
     // 闪光效果
     if (this.$flash) {
@@ -158,34 +271,44 @@ class CaptureManager {
     const filename = 'petals_' + this._timestamp() + '.png';
 
     // 导出 blob
-    this.compositeCanvas.toBlob((blob) => {
-      if (!blob) {
-        this._showToast('拍照失败');
-        return;
-      }
-
-      // 策略1：Web Share API（iOS Safari / Android Chrome 均支持，可直接保存到相册）
-      if (navigator.canShare && navigator.share) {
-        const file = new File([blob], filename, { type: 'image/png' });
-        if (navigator.canShare({ files: [file] })) {
-          navigator.share({
-            files: [file],
-            title: '花瓣雨',
-          }).then(() => {
-            this._showToast('已分享/保存');
-          }).catch((err) => {
-            // 用户取消分享不算错误
-            if (err.name !== 'AbortError') {
-              this._fallbackSavePhoto(blob, filename);
-            }
-          });
+    try {
+      this.compositeCanvas.toBlob((blob) => {
+        if (!blob) {
+          this._showToast('拍照失败: 图片生成为空');
           return;
         }
-      }
 
-      // 策略2：降级方案
-      this._fallbackSavePhoto(blob, filename);
-    }, 'image/png');
+        // 策略1：Web Share API（iOS Safari / Android Chrome 均支持，可直接保存到相册）
+        if (navigator.canShare && navigator.share) {
+          try {
+            const file = new File([blob], filename, { type: 'image/png' });
+            if (navigator.canShare({ files: [file] })) {
+              navigator.share({
+                files: [file],
+                title: '花瓣雨',
+              }).then(() => {
+                this._showToast('已分享/保存');
+              }).catch((err) => {
+                // 用户取消分享不算错误
+                if (err.name !== 'AbortError') {
+                  console.warn('分享失败:', err);
+                  this._fallbackSavePhoto(blob, filename);
+                }
+              });
+              return;
+            }
+          } catch (shareErr) {
+            console.warn('Web Share API 异常:', shareErr);
+          }
+        }
+
+        // 策略2：降级方案
+        this._fallbackSavePhoto(blob, filename);
+      }, 'image/png');
+    } catch (err) {
+      console.error('toBlob 调用失败:', err);
+      this._showToast('拍照失败');
+    }
   }
 
   /**

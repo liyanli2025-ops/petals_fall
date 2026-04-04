@@ -30,8 +30,9 @@ class BodyCollisionDetector {
     this.maskData = null;
     
     // 碰撞参数
-    this.edgeThreshold = 0.35;    // 判定为"边缘碰撞"的 y 距离阈值（归一化）— 增大以提高灵敏度
+    this.edgeThreshold = 0.06;    // 判定为"边缘碰撞"的 y 距离阈值（归一化）— 只让刚好触碰到人物边缘的花瓣停留
     this.insideEnabled = true;     // 是否也检测人物内部碰撞（花瓣从侧面飘入）
+    this.headExcludeRatio = 0.25;  // 排除头部区域：人物区域顶部 25% 范围内不触发碰撞
     
     // 状态
     this.hasValidData = false;
@@ -276,10 +277,26 @@ class BodyCollisionDetector {
     const edgeY = this.topEdge[col];
     if (edgeY < 0) return { hit: false, type: 'none', surfaceY: 0 };
     
-    // 边缘碰撞：花瓣 y 接近上边缘（从上方落入）
-    const dy = my - edgeY;
+    // 找到这一列的底部边缘（用于计算人物高度）
+    let bottomY = edgeY;
+    if (this.maskData) {
+      for (let y = this.sampleH - 1; y >= 0; y--) {
+        if (this.maskData[y * this.sampleW + col] === 1) {
+          bottomY = y / this.sampleH;
+          break;
+        }
+      }
+    }
+    
+    // 排除头部区域：人物上部 headExcludeRatio 范围不触发碰撞
+    const bodyHeight = bottomY - edgeY;
+    const headCutoff = edgeY + bodyHeight * this.headExcludeRatio;
+    if (my < headCutoff) return { hit: false, type: 'none', surfaceY: 0 };
+    
+    // 边缘碰撞：花瓣 y 接近上边缘（从上方落入），但排除头部后从 headCutoff 开始
+    const dy = my - headCutoff;
     if (dy >= -this.edgeThreshold && dy <= this.edgeThreshold * 2) {
-      return { hit: true, type: 'edge', surfaceY: edgeY };
+      return { hit: true, type: 'edge', surfaceY: headCutoff };
     }
     
     // 内部碰撞：花瓣已经在人物区域内
@@ -288,7 +305,7 @@ class BodyCollisionDetector {
       if (row >= 0 && row < this.sampleH) {
         const isInside = this.maskData[row * this.sampleW + col] === 1;
         if (isInside) {
-          return { hit: true, type: 'inside', surfaceY: edgeY };
+          return { hit: true, type: 'inside', surfaceY: headCutoff };
         }
       }
     }

@@ -17,6 +17,7 @@
   const $btnToggleCamera = document.getElementById('btn-toggle-camera');
   const $petalDensity = document.getElementById('petal-density');
   const $fpsCounter = document.getElementById('fps-counter');
+  const $debugPanel = document.getElementById('debug-panel');
   const $debug = document.getElementById('debug-info');
 
   let cameraModule = null;
@@ -171,6 +172,7 @@
 
       // === 4.5 初始化拍照/录像 ===
       capture = new CaptureManager();
+      capture.cameraManager = cameraModule;
       capture.init();
 
       if (!cameraModule.hasCamera) {
@@ -226,6 +228,30 @@
         const meshCount = particles.instancedMeshes ? particles.instancedMeshes.length : 0;
         const glOk = (particles.renderer && particles.renderer.getContext && !particles.renderer.getContext().isContextLost()) ? '' : ' | GL:✗';
         $fpsCounter.textContent = `FPS:${particles.fps} 瓣:${particles.petalCount} M:${meshCount}${ctxLost}${hasRenderer}${glOk}${restInfo}`;
+      }
+
+      // 调试面板：显示相机 up 向量 + 四元数
+      if ($debugPanel && $debugPanel.style.display !== 'none' && particles && particles.camera) {
+        const cam = particles.camera;
+        // 相机局部 Y+ 轴在世界空间的方向（= 屏幕上方指向世界的哪里）
+        const up = new THREE.Vector3(0, 1, 0).applyQuaternion(cam.quaternion);
+        // 相机局部 -Z 轴在世界空间（= 相机看向的方向）
+        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+        const q = cam.quaternion;
+        const camData = gyroscope.getCameraData();
+        const mode = camData.mode || '?';
+
+        let txt = `模式: ${mode}\n`;
+        txt += `cam UP  : (${up.x.toFixed(3)}, ${up.y.toFixed(3)}, ${up.z.toFixed(3)})\n`;
+        txt += `cam FWD : (${fwd.x.toFixed(3)}, ${fwd.y.toFixed(3)}, ${fwd.z.toFixed(3)})\n`;
+        txt += `quat    : (${q.x.toFixed(3)}, ${q.y.toFixed(3)}, ${q.z.toFixed(3)}, ${q.w.toFixed(3)})\n`;
+        // 判断：up.y 应该接近 1.0（世界Y+），如果偏离说明有问题
+        const upAngle = Math.acos(Math.min(1, Math.abs(up.y))) * 180 / Math.PI;
+        txt += `UP偏离垂直: ${upAngle.toFixed(1)}°`;
+        if (upAngle > 30) txt += ' ⚠️偏差大!';
+        if (up.y < 0) txt += ' ❌上下颠倒!';
+
+        $debugPanel.textContent = txt;
       }
     }
     loop();
@@ -298,19 +324,33 @@
       e.preventDefault();
     }, { passive: false });
 
-    // 三击 FPS
+    // 三击 FPS + 调试面板
     $fpsCounter.style.display = 'none';
+    if ($debugPanel) $debugPanel.style.display = 'none';
     let tapCount = 0;
     let tapTimer = null;
-    document.addEventListener('click', () => {
+    let usedTouch = false;
+    const handleTripleTap = () => {
       tapCount++;
       if (tapTimer) clearTimeout(tapTimer);
       tapTimer = setTimeout(() => {
         if (tapCount >= 3) {
-          $fpsCounter.style.display = $fpsCounter.style.display === 'none' ? 'block' : 'none';
+          const show = $fpsCounter.style.display === 'none' ? 'block' : 'none';
+          $fpsCounter.style.display = show;
+          if ($debugPanel) $debugPanel.style.display = show;
         }
         tapCount = 0;
       }, 500);
+    };
+    // 手机上 touchstart 的 preventDefault 会阻止 click，用 touchend 代替
+    document.addEventListener('touchend', () => {
+      usedTouch = true;
+      handleTripleTap();
+    });
+    // 桌面端用 click，避免与 touch 重复计数
+    document.addEventListener('click', () => {
+      if (!usedTouch) handleTripleTap();
+      usedTouch = false;
     });
   }
 

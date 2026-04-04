@@ -33,6 +33,9 @@ class CameraManager {
       this.facingMode = settings.facingMode || 'environment';
     }
 
+    // 前置摄像头做镜像翻转
+    this._updateMirror();
+
     this.video.onloadedmetadata = () => {
       this.video.play().catch(() => {});
     };
@@ -89,6 +92,9 @@ class CameraManager {
     this.fallbackBg.classList.add('hidden');
     this.isActive = true;
 
+    // 前置摄像头做镜像翻转（像照镜子）
+    this._updateMirror();
+
     return new Promise((resolve) => {
       this.video.onloadedmetadata = () => {
         this.video.play().then(() => resolve(true)).catch(() => resolve(true));
@@ -132,6 +138,14 @@ class CameraManager {
         console.warn('无法重新开启摄像头:', err);
         this._showFallback();
       }
+    }
+  }
+
+  _updateMirror() {
+    if (this.facingMode === 'user') {
+      this.video.style.transform = 'scaleX(-1)';
+    } else {
+      this.video.style.transform = '';
     }
   }
 
