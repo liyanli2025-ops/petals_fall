@@ -4,14 +4,18 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
   <title>局部地区有花雨</title>
+  <meta property="og:title" content="局部地区有花雨——AR 沉浸花瓣体验">
+  <meta property="og:description" content="开启摄像头，沉浸在漫天花瓣之中。转动设备，感受360° 环绕花海。">
+  <meta property="og:image" content="https://mat1.gtimg.com/qqcdn/redian/petals_fall/share.png">
+  <meta property="og:url" content="https://h5.news.qq.com/qqfile/redian/petals_fall.html">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
   <!-- 启动引导页 -->
   <div id="landing" class="landing">
     <!-- 视频背景 -->
-    <video class="landing-video" autoplay muted loop playsinline>
-      <source src="https://mat1.gtimg.com/qqcdn/redian/petals_fall_test/start.mp4" type="video/mp4">
+    <video class="landing-video" autoplay muted loop playsinline webkit-playsinline x5-video-player-type="h5-page" x5-video-player-fullscreen="true">
+      <source src="https://mat1.gtimg.com/qqcdn/redian/petals_fall/start.mp4" type="video/mp4">
     </video>
     <!-- 遮罩层 -->
     <div class="landing-overlay"></div>
@@ -35,7 +39,7 @@
       3. 人物遮罩层（人体轮廓覆盖在花瓣之上）
       4. UI 控制层
     -->
-    <video id="camera-video" autoplay playsinline muted></video>
+    <video id="camera-video" autoplay playsinline muted webkit-playsinline x5-video-player-type="h5-page"></video>
     <div id="fallback-bg" class="fallback-bg hidden"></div>
 
     <!-- 隐藏的 WebGL 渲染目标（单 context） -->
@@ -118,5 +122,82 @@
   <script src="js/webgl-blur.js"></script>
   <script src="js/capture.js"></script>
   <script src="js/app.js"></script>
+  <!-- 分享能力 -->
+  <script>
+  (function() {
+    var ua = navigator.userAgent || '';
+    function isQQNews() { return /qqnews/i.test(ua); }
+    function isWeixin() { return /MicroMessenger/i.test(ua); }
+
+    function loadjs(url, onload) {
+      var s = document.createElement('script');
+      s.src = url;
+      s.onload = s.onerror = onload || function(){};
+      document.head.appendChild(s);
+    }
+
+    function setMetaAttr(selector, content) {
+      var meta = document.querySelector(selector);
+      if (meta && content) meta.content = content;
+    }
+
+    function setMetaContent(p) {
+      setMetaAttr('meta[property="og:title"]', p.title);
+      setMetaAttr('meta[property="og:description"]', p.content);
+      setMetaAttr('meta[property="og:image"]', p.imgUrl);
+      setMetaAttr('meta[property="og:url"]', p.url);
+    }
+
+    function wxShare(p) {
+      function onBridgeReady() {
+        if (!window.WeixinJSBridge) return;
+        window.WeixinJSBridge.on('menu:share:timeline', function() {
+          window.WeixinJSBridge.invoke('shareTimeline', {
+            img_url: p.imgUrl, img_width: '160', img_height: '160',
+            link: p.url, desc: p.content, title: p.title
+          });
+        });
+        window.WeixinJSBridge.on('menu:share:appmessage', function() {
+          window.WeixinJSBridge.invoke('sendAppMessage', {
+            img_url: p.imgUrl, link: p.url, desc: p.content, title: p.title
+          });
+        });
+      }
+      if (window.WeixinJSBridge) { onBridgeReady(); }
+      else { document.addEventListener('WeixinJSBridgeReady', onBridgeReady, false); }
+    }
+
+    function setShare(p) {
+      if (isQQNews()) {
+        var qn = window.QN || {};
+        if (qn.setShareInfo) {
+          qn.setShareInfo({
+            title: p.title || '', longTitle: p.longTitle || p.title || '',
+            content: p.content || '', url: p.url || '', imgUrl: p.imgUrl || ''
+          });
+        }
+      }
+      if (isWeixin()) { wxShare(p); }
+      setMetaContent(p);
+      function doShareInfo() {
+        if (window.setShareInfo) {
+          window.setShareInfo({ title: p.title, summary: p.content, pic: p.imgUrl, url: p.url });
+        }
+      }
+      if (window.setShareInfo) { doShareInfo(); }
+      else { loadjs('https://qzonestyle.gtimg.cn/qzone/qzact/common/share/share.js', doShareInfo); }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      setShare({
+        title: '局部地区有花雨——AR 沉浸花瓣体验',
+        longTitle: '局部地区有花雨',
+        content: '开启摄像头，沉浸在漫天花瓣之中。转动设备，感受360° 环绕花海。',
+        imgUrl: 'https://mat1.gtimg.com/qqcdn/redian/petals_fall/share.png',
+        url: 'https://h5.news.qq.com/qqfile/redian/petals_fall.html'
+      });
+    });
+  })();
+  </script>
 </body>
 </html>

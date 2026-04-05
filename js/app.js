@@ -9,6 +9,52 @@
 (function () {
   'use strict';
 
+  // === 视频自动播放兼容（所有环境） ===
+  var isWx = /MicroMessenger/i.test(navigator.userAgent);
+  var landingVideo = document.querySelector('.landing-video');
+
+  function tryPlayVideo() {
+    if (!landingVideo || !landingVideo.paused) return;
+    // 确保静音（部分浏览器只允许静音自动播放）
+    landingVideo.muted = true;
+    var p = landingVideo.play();
+    if (p && p.catch) p.catch(function() {});
+  }
+
+  if (landingVideo) {
+    // 1. 立即尝试
+    tryPlayVideo();
+
+    // 2. 视频元数据加载后再试
+    landingVideo.addEventListener('loadedmetadata', tryPlayVideo);
+    landingVideo.addEventListener('canplay', tryPlayVideo);
+
+    // 3. 微信 WeixinJSBridge 就绪后触发
+    if (isWx) {
+      if (window.WeixinJSBridge) {
+        tryPlayVideo();
+      } else {
+        document.addEventListener('WeixinJSBridgeReady', tryPlayVideo, false);
+      }
+    }
+
+    // 4. DOMContentLoaded
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', tryPlayVideo);
+    } else {
+      tryPlayVideo();
+    }
+
+    // 5. 页面完全加载后
+    window.addEventListener('load', tryPlayVideo);
+
+    // 6. 用户首次触摸兜底
+    document.addEventListener('touchstart', function videoTouchPlay() {
+      tryPlayVideo();
+      document.removeEventListener('touchstart', videoTouchPlay);
+    }, { once: true, passive: true });
+  }
+
   const $landing = document.getElementById('landing');
   const $scene = document.getElementById('scene');
   const $btnStart = document.getElementById('btn-start');
@@ -85,7 +131,7 @@
           });
           debug('摄像头: 后置OK');
         } catch (err) {
-          debug('后置摄像头失败: ' + err.name);
+          debug('后置摄像头失败: ' + err.name + ' ' + err.message);
           // 再试前置
           try {
             cameraStream = await navigator.mediaDevices.getUserMedia({
@@ -94,11 +140,33 @@
             });
             debug('摄像头: 前置OK');
           } catch (e2) {
-            debug('前置摄像头也失败: ' + e2.name);
+            debug('前置摄像头也失败: ' + e2.name + ' ' + e2.message);
+            // 最后降级：不指定任何约束
+            try {
+              cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+              debug('摄像头: 降级模式OK');
+            } catch (e3) {
+              debug('所有摄像头尝试均失败: ' + e3.name);
+            }
           }
         }
       } else {
-        debug('getUserMedia 不可用（可能非HTTPS）');
+        debug('getUserMedia 不可用');
+        // 微信环境下 getUserMedia 可能不在 navigator.mediaDevices 上
+        if (isWx) {
+          debug('微信环境，尝试旧版 API...');
+          var getUserMediaLegacy = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+          if (getUserMediaLegacy) {
+            try {
+              cameraStream = await new Promise(function(resolve, reject) {
+                getUserMediaLegacy.call(navigator, { video: true, audio: false }, resolve, reject);
+              });
+              debug('摄像头: 旧版API OK');
+            } catch(e4) {
+              debug('旧版API也失败: ' + e4.name);
+            }
+          }
+        }
       }
 
       $btnStart.innerHTML = '<span>正在加载...</span>';

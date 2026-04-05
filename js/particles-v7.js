@@ -35,8 +35,8 @@ class PetalParticleSystem {
 
     // 贴图
     this.petalTexturePaths = [
-      '1.png', '2.png', '3.png', '4.png',
-      '5.png', '6.png', '7.png', '8.png'
+      'p1.png', 'p2.png', 'p3.png', 'p4.png',
+      'p5.png', 'p6.png', 'p7.png', 'p8.png'
     ];
 
     this.petalMaterials = [];

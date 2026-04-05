@@ -686,3 +686,118 @@ switchFlowerType(presetKey) {
     ↓
 过渡动画 (旧花瓣加速下落 / 新花瓣从上方飘入)
 ```
+
+---
+
+## 附录：部署问题与解决指南
+
+### 1. CDN 同名文件不更新（skip 问题）
+
+**现象**：更新了花瓣贴图 `1.png~8.png`，重新部署后正式环境仍然是旧图，日志显示 `[skip]`。
+
+**原因**：部署脚本（tupload）检测到 CDN 上已存在同名文件，自动跳过上传。
+
+**解决**：**重命名文件**让 CDN 认为是新文件。例如将 `1.png~8.png` 改为 `p1.png~p8.png`，同时更新 JS 中的引用路径：
+
+```javascript
+// js/particles.js、js/particles-v7.js、js/resting-petals.js 中的贴图路径
+this.petalTexturePaths = [
+  'p1.png', 'p2.png', 'p3.png', 'p4.png',
+  'p5.png', 'p6.png', 'p7.png', 'p8.png'
+];
+```
+
+### 2. 视频（mp4）上传到正式环境
+
+**现象**：部署脚本只处理图片（png/jpg/gif/svg/webp/ico）、CSS、JS 文件，**不会上传 mp4 视频文件**，也不会替换 HTML 中 mp4 的相对路径。
+
+**解决**：使用 `expect` 脚本包装 `tupload2` 命令行工具手动上传。tupload2 有交互式确认提示，直接管道输入会导致 readline 崩溃，必须用 `expect` 处理：
+
+```bash
+# 上传视频到正式环境 CDN
+cd .codebuddy/skills/page-deploy
+
+expect -c '
+set timeout 30
+spawn ./node_modules/.bin/tupload2 \
+  /Users/yanli/Downloads/flowers/start.mp4 \
+  start.mp4 \
+  --token <TUPLOAD_TOKEN> \
+  --baseurl /qqcdn/redian/petals_fall \
+  --site mat1.gtimg.com
+expect "确定*"
+send "Y\r"
+expect eof
+'
+
+# 验证上传结果
+curl -sI "https://mat1.gtimg.com/qqcdn/redian/petals_fall/start.mp4" | head -3
+# 应该返回 HTTP/2 200
+```
+
+上传成功后，在 HTML 中使用绝对 CDN 路径：
+```html
+<source src="https://mat1.gtimg.com/qqcdn/redian/petals_fall/start.mp4" type="video/mp4">
+```
+
+> ⚠️ **注意**：正式环境资源路径是 `petals_fall/`，测试环境是 `petals_fall_test/`。正式链接**不能**引用测试环境资源，测试 CDN 在公司网络外不可访问。
+
+### 3. 移动端视频自动播放
+
+**现象**：开始页背景视频在手机上需要点击才能播放。
+
+**原因**：移动端浏览器限制自动播放，需满足 `muted + playsinline + autoplay`，并在 JS 中主动调 `play()`。
+
+**解决**：
+
+HTML 标签加完整兼容属性：
+```html
+<video autoplay muted loop playsinline
+       webkit-playsinline
+       x5-video-player-type="h5-page"
+       x5-video-player-fullscreen="true">
+```
+
+JS 中多时机尝试播放（立即、loadedmetadata、canplay、DOMContentLoaded、load、touchstart），确保尽早播放。
+
+### 4. 微信浏览器摄像头不可用
+
+**现象**：微信内打开页面后无法启用摄像头。
+
+**原因**：微信内置浏览器对 `getUserMedia` API 有限制，需要域名在微信公众平台配置 **JS 安全域名**。
+
+**当前处理**：
+- 代码中已做三级降级：后置→前置→无约束 `{video: true}`
+- 增加了旧版 `navigator.getUserMedia` API 兼容
+- 摄像头不可用时自动显示渐变背景降级方案
+
+### 5. 正式环境与测试环境资源差异
+
+**现象**：两个环境花瓣效果不一致。
+
+**根因**：首次部署正式环境时上传了旧版贴图，后来更新贴图后因同名被 skip，导致正式环境停留在旧版。
+
+**排查方法**：
+```bash
+# 对比同一文件在两个环境的大小/etag
+curl -sI "https://mat1.gtimg.com/qqcdn/redian/petals_fall/p1.png" | grep content-length
+curl -sI "https://mat1.gtimg.com/qqcdn/redian/petals_fall_test/p1.png" | grep content-length
+```
+
+**预防**：每次更新资源后，如果文件名不变，**必须重命名文件**再部署。
+
+### 6. 部署环境一览
+
+| 环境 | HTML 地址 | CDN 资源路径 |
+|------|-----------|-------------|
+| 测试 | `https://testqqnews.qq.com/qqfile/redian/petals_fall.html` | `https://mat1.gtimg.com/qqcdn/redian/petals_fall_test/` |
+| 正式 | `https://h5.news.qq.com/qqfile/redian/petals_fall.html` | `https://mat1.gtimg.com/qqcdn/redian/petals_fall/` |
+
+**部署命令**：
+```bash
+# 测试环境
+node .codebuddy/skills/page-deploy/scripts/deploy.cjs /path/to/flowers petals_fall test --title-checked
+
+# 正式环境（需二次确认）
+node .codebuddy/skills/page-deploy/scripts/deploy.cjs /path/to/flowers petals_fall production --title-checked --confirmed
+```

@@ -34,8 +34,8 @@ class PetalParticleSystem {
     this.cameraWorldPos = { x: 0, y: 0, z: 0 };
 
     this.petalTexturePaths = [
-      '1.png', '2.png', '3.png', '4.png',
-      '5.png', '6.png', '7.png', '8.png'
+      'p1.png', 'p2.png', 'p3.png', 'p4.png',
+      'p5.png', 'p6.png', 'p7.png', 'p8.png'
     ];
 
     this.petalMaterials = [];
@@ -117,7 +117,7 @@ class PetalParticleSystem {
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 提升渲染质量
       this.renderer.setClearColor(0x000000, 0);
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      this.renderer.toneMappingExposure = 1.2;
+      this.renderer.toneMappingExposure = 1.45;
       if (this.renderer.outputColorSpace !== undefined) {
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
       }
@@ -148,15 +148,15 @@ class PetalParticleSystem {
     });
 
     // 光源
-    const hemiLight = new THREE.HemisphereLight(0xfff5f0, 0xc8b0ff, 0.6);
+    const hemiLight = new THREE.HemisphereLight(0xfff5f0, 0xc8b0ff, 0.75);
     this.scene.add(hemiLight);
-    const mainLight = new THREE.DirectionalLight(0xfff0e0, 0.9);
+    const mainLight = new THREE.DirectionalLight(0xfff0e0, 1.1);
     mainLight.position.set(5, 8, 3);
     this.scene.add(mainLight);
-    const fillLight = new THREE.DirectionalLight(0xe0e8ff, 0.35);
+    const fillLight = new THREE.DirectionalLight(0xe0e8ff, 0.45);
     fillLight.position.set(-3, -2, -5);
     this.scene.add(fillLight);
-    const backLight = new THREE.PointLight(0xffcccc, 0.5, 40);
+    const backLight = new THREE.PointLight(0xffcccc, 0.6, 40);
     backLight.position.set(0, 5, -8);
     this.scene.add(backLight);
 
@@ -1100,7 +1100,7 @@ class PetalParticleSystem {
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       this.renderer.setClearColor(0x000000, 0);
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      this.renderer.toneMappingExposure = 1.2;
+      this.renderer.toneMappingExposure = 1.45;
       if (this.renderer.outputColorSpace !== undefined) this.renderer.outputColorSpace = THREE.SRGBColorSpace;
       for (const mat of this.petalMaterials) { if (mat.map) mat.map.needsUpdate = true; mat.needsUpdate = true; }
       if (this.farPetalMaterials) {
