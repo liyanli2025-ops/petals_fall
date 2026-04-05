@@ -15,7 +15,6 @@
 
   function tryPlayVideo() {
     if (!landingVideo || !landingVideo.paused) return;
-    // 确保静音（部分浏览器只允许静音自动播放）
     landingVideo.muted = true;
     var p = landingVideo.play();
     if (p && p.catch) p.catch(function() {});
@@ -25,30 +24,36 @@
     // 1. 立即尝试
     tryPlayVideo();
 
-    // 2. 视频元数据加载后再试
+    // 2. 视频就绪后
     landingVideo.addEventListener('loadedmetadata', tryPlayVideo);
     landingVideo.addEventListener('canplay', tryPlayVideo);
 
-    // 3. 微信 WeixinJSBridge 就绪后触发
+    // 3. 微信专用：WeixinJSBridge + getNetworkType 回调触发（微信官方推荐方案）
     if (isWx) {
+      var wxAutoPlay = function() {
+        window.WeixinJSBridge.invoke('getNetworkType', {}, function() {
+          tryPlayVideo();
+        });
+      };
       if (window.WeixinJSBridge) {
-        tryPlayVideo();
+        wxAutoPlay();
       } else {
-        document.addEventListener('WeixinJSBridgeReady', tryPlayVideo, false);
+        document.addEventListener('WeixinJSBridgeReady', wxAutoPlay, false);
       }
     }
 
-    // 4. DOMContentLoaded
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', tryPlayVideo);
-    } else {
-      tryPlayVideo();
-    }
-
-    // 5. 页面完全加载后
+    // 4. 页面加载完
     window.addEventListener('load', tryPlayVideo);
 
-    // 6. 用户首次触摸兜底
+    // 5. 定时重试（前 3 秒每 500ms 试一次）
+    var retryCount = 0;
+    var retryTimer = setInterval(function() {
+      retryCount++;
+      tryPlayVideo();
+      if (!landingVideo.paused || retryCount >= 6) clearInterval(retryTimer);
+    }, 500);
+
+    // 6. 用户触摸兜底（整页任意位置）
     document.addEventListener('touchstart', function videoTouchPlay() {
       tryPlayVideo();
       document.removeEventListener('touchstart', videoTouchPlay);
@@ -122,33 +127,49 @@
       let cameraStream = null;
       debug('请求摄像头...');
 
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        // 先尝试后置
-        try {
-          cameraStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
-            audio: false
-          });
-          debug('摄像头: 后置OK');
-        } catch (err) {
-          debug('后置摄像头失败: ' + err.name + ' ' + err.message);
-          // 再试前置
+      // 带重试的摄像头获取（微信环境不稳定，需要重试）
+      async function tryGetCamera(retries) {
+        for (let attempt = 0; attempt <= retries; attempt++) {
+          if (attempt > 0) {
+            debug('摄像头重试 ' + attempt + '/' + retries + '...');
+            await new Promise(r => setTimeout(r, 800));
+          }
           try {
-            cameraStream = await navigator.mediaDevices.getUserMedia({
-              video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+            // 后置
+            return await navigator.mediaDevices.getUserMedia({
+              video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
               audio: false
             });
-            debug('摄像头: 前置OK');
-          } catch (e2) {
-            debug('前置摄像头也失败: ' + e2.name + ' ' + e2.message);
-            // 最后降级：不指定任何约束
+          } catch (err) {
+            debug('后置失败(' + attempt + '): ' + err.name);
             try {
-              cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-              debug('摄像头: 降级模式OK');
-            } catch (e3) {
-              debug('所有摄像头尝试均失败: ' + e3.name);
+              // 前置
+              return await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+                audio: false
+              });
+            } catch (e2) {
+              debug('前置失败(' + attempt + '): ' + e2.name);
+              try {
+                // 无约束降级
+                return await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+              } catch (e3) {
+                debug('降级失败(' + attempt + '): ' + e3.name);
+                if (attempt === retries) return null;
+              }
             }
           }
+        }
+        return null;
+      }
+
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        var maxRetries = isWx ? 2 : 0;
+        cameraStream = await tryGetCamera(maxRetries);
+        if (cameraStream) {
+          debug('摄像头: OK');
+        } else {
+          debug('摄像头: 所有尝试均失败');
         }
       } else {
         debug('getUserMedia 不可用');

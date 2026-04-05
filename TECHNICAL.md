@@ -801,3 +801,57 @@ node .codebuddy/skills/page-deploy/scripts/deploy.cjs /path/to/flowers petals_fa
 # 正式环境（需二次确认）
 node .codebuddy/skills/page-deploy/scripts/deploy.cjs /path/to/flowers petals_fall production --title-checked --confirmed
 ```
+
+---
+
+## 七、花瓣贴图损坏问题修复记录（2026-04-06）
+
+### 1. 问题现象
+
+花瓣纹理在渲染时呈现明显的**横条纹**和模糊失真，与原始花瓣照片差异巨大。
+
+### 2. 根因分析
+
+问题由以下操作链条叠加导致：
+
+| 步骤 | 操作 | 结果 |
+|------|------|------|
+| ① | 花瓣边缘有锯齿/白边（straight alpha + premultiplyAlpha 冲突） | 编写 `_softenTextureAlpha()` 运行时修复 |
+| ② | 尝试将运行时处理结果导出为静态图 | 导出过程异常，产生横条纹损坏图 |
+| ③ | CDN 同名文件跳过（`1.png` 已存在） | 需要改名为 `p1.png` ~ `p8.png` 上传 |
+| ④ | 损坏的处理结果被保存为 `p1.png` ~ `p8.png` | 项目开始使用损坏贴图 |
+| ⑤ | `_softenTextureAlpha()` 继续对已损坏的图做 3轮 7×7 高斯模糊 | **双重损坏**：损坏图再被模糊 |
+
+核心问题：`p1.png` ~ `p8.png` **不是原始图片改名，而是经过 `_softenTextureAlpha` 处理后错误导出的产物**（2倍上采样 → 颜色扩展 → 3轮7×7高斯模糊），导出时出现横条纹。原始高清图被备份为 `1_backup.png` ~ `8_backup.png`，但未被引用。
+
+### 3. 修复方案
+
+**三步修复**：
+
+1. **恢复原始贴图**：用 `1_backup.png` ~ `8_backup.png`（原始高清图）覆盖损坏的贴图
+2. **重命名绕过 CDN 缓存**：改名为 `petal1.png` ~ `petal8.png`（CDN 同名文件会 skip）
+3. **禁用过度模糊**：移除 `_softenTextureAlpha()` 调用，原始高清图配合 `premultiplyAlpha: true` 即可正确处理边缘
+
+### 4. 代码变更
+
+```javascript
+// 贴图路径（修改前）
+this.petalTexturePaths = [
+  'p1.png', 'p2.png', 'p3.png', 'p4.png',
+  'p5.png', 'p6.png', 'p7.png', 'p8.png'
+];
+
+// 贴图路径（修改后）
+this.petalTexturePaths = [
+  'petal1.png', 'petal2.png', 'petal3.png', 'petal4.png',
+  'petal5.png', 'petal6.png', 'petal7.png', 'petal8.png'
+];
+
+// 纹理加载回调中移除了 this._softenTextureAlpha(texture) 调用
+```
+
+### 5. 经验教训
+
+- **CDN 同名覆盖问题**：tupload CDN 对同名文件会 `[skip]`，更新资源时**必须更换文件名**
+- **避免运行时重度图像处理**：3轮 7×7 高斯模糊在 CPU 侧开销大且容易引入错误，应在离线工具中预处理
+- **保留原始素材**：备份文件 `*_backup.png` 在此次修复中起到了关键作用

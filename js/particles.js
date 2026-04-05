@@ -34,8 +34,8 @@ class PetalParticleSystem {
     this.cameraWorldPos = { x: 0, y: 0, z: 0 };
 
     this.petalTexturePaths = [
-      'p1.png', 'p2.png', 'p3.png', 'p4.png',
-      'p5.png', 'p6.png', 'p7.png', 'p8.png'
+      'petal1.png', 'petal2.png', 'petal3.png', 'petal4.png',
+      'petal5.png', 'petal6.png', 'petal7.png', 'petal8.png'
     ];
 
     this.petalMaterials = [];
@@ -117,7 +117,7 @@ class PetalParticleSystem {
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 提升渲染质量
       this.renderer.setClearColor(0x000000, 0);
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      this.renderer.toneMappingExposure = 1.45;
+      this.renderer.toneMappingExposure = 1.2;
       if (this.renderer.outputColorSpace !== undefined) {
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
       }
@@ -148,15 +148,15 @@ class PetalParticleSystem {
     });
 
     // 光源
-    const hemiLight = new THREE.HemisphereLight(0xfff5f0, 0xc8b0ff, 0.75);
+    const hemiLight = new THREE.HemisphereLight(0xfff5f0, 0xc8b0ff, 0.6);
     this.scene.add(hemiLight);
-    const mainLight = new THREE.DirectionalLight(0xfff0e0, 1.1);
+    const mainLight = new THREE.DirectionalLight(0xfff0e0, 0.9);
     mainLight.position.set(5, 8, 3);
     this.scene.add(mainLight);
-    const fillLight = new THREE.DirectionalLight(0xe0e8ff, 0.45);
+    const fillLight = new THREE.DirectionalLight(0xe0e8ff, 0.35);
     fillLight.position.set(-3, -2, -5);
     this.scene.add(fillLight);
-    const backLight = new THREE.PointLight(0xffcccc, 0.6, 40);
+    const backLight = new THREE.PointLight(0xffcccc, 0.5, 40);
     backLight.position.set(0, 5, -8);
     this.scene.add(backLight);
 
@@ -377,8 +377,6 @@ class PetalParticleSystem {
     const total = this.petalTexturePaths.length;
     this.petalTexturePaths.forEach((path) => {
       const texture = this.textureLoader.load(path, () => {
-        // 加载完成后对 alpha 边缘做柔化
-        this._softenTextureAlpha(texture);
         loadedCount++;
         if (loadedCount === total) this._onAllTexturesLoaded();
       }, undefined, () => {
@@ -1100,7 +1098,7 @@ class PetalParticleSystem {
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       this.renderer.setClearColor(0x000000, 0);
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      this.renderer.toneMappingExposure = 1.45;
+      this.renderer.toneMappingExposure = 1.2;
       if (this.renderer.outputColorSpace !== undefined) this.renderer.outputColorSpace = THREE.SRGBColorSpace;
       for (const mat of this.petalMaterials) { if (mat.map) mat.map.needsUpdate = true; mat.needsUpdate = true; }
       if (this.farPetalMaterials) {
