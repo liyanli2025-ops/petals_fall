@@ -166,7 +166,37 @@ class CaptureManager {
       ctx.fillRect(0, 0, w, h);
     }
 
-    // === 运动模糊：将花瓣层先合成到临时 canvas，再存入历史 buffer ===
+    // DPR 补偿：合成 canvas 分辨率是屏幕的 N 倍，模糊半径需等比放大
+    const compositeDPR = w / window.innerWidth;
+
+    // === 录像时：跳过 blur，直接 drawImage（核心性能优化） ===
+    // WebGL blur 每层需要 ~8-10ms（纹理上传+双pass+回读），3 层共 ~25-30ms
+    // 直接 drawImage 只需 ~1ms/层，录像 1x 分辨率下 blur 效果几乎不可见
+    if (this.isRecording) {
+      // 2. 远景花瓣层
+      if (this.canvasFar.width > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.75;
+        ctx.drawImage(this.canvasFar, 0, 0, w, h);
+        ctx.restore();
+      }
+
+      // 3. 中景花瓣层
+      if (this.canvasMid.width > 0) {
+        ctx.drawImage(this.canvasMid, 0, 0, w, h);
+      }
+
+      // 5. 近景花瓣层
+      if (this.canvasNear.width > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.55;
+        ctx.drawImage(this.canvasNear, 0, 0, w, h);
+        ctx.restore();
+      }
+      return;
+    }
+
+    // === 非录像（拍照）时：完整运动模糊流程 ===
 
     // 懒初始化 / 尺寸变化时重建 buffer
     if (!this._motionBlurInited || this._motionBlurW !== w || this._motionBlurH !== h) {
@@ -175,9 +205,6 @@ class CaptureManager {
 
     const tmpCtx = this._petalTempCtx;
     tmpCtx.clearRect(0, 0, w, h);
-
-    // DPR 补偿：合成 canvas 分辨率是屏幕的 N 倍，模糊半径需等比放大
-    const compositeDPR = w / window.innerWidth;
 
     // 2. 远景花瓣层（CSS blur(1px) 对应 + 轻微降透）
     if (this.canvasFar.width > 0) {
@@ -203,14 +230,11 @@ class CaptureManager {
     }
 
     // --- 运动模糊叠加 ---
-    // 先叠历史帧（越老的帧透明度越低），产生运动拖影
-    // 透明度分配：从最老到最新 → 0.12, 0.20, 0.30
     const alphaLevels = [0.12, 0.20, 0.30];
     const totalHistory = Math.min(this._historyFilled, this._motionBlurFrames);
     for (let age = totalHistory; age >= 1; age--) {
-      // age=1 是上一帧, age=totalHistory 是最老的帧
       const bufIdx = (this._historyWriteIndex - age + this._motionBlurFrames) % this._motionBlurFrames;
-      const alphaIdx = this._motionBlurFrames - age; // 0=最老, N-1=最新历史帧
+      const alphaIdx = this._motionBlurFrames - age;
       const alpha = alphaLevels[alphaIdx] || 0.10;
       ctx.save();
       ctx.globalAlpha = alpha;
@@ -651,6 +675,9 @@ class CaptureManager {
       this.$recordTime.classList.remove('hidden');
       this._updateRecordingTime();
 
+      // 录像中禁用摄像头切换/开关按钮
+      this._setCameraButtonsDisabled(true);
+
       // 每帧合成画面给录像流
       this._startCompositeLoop();
 
@@ -668,6 +695,8 @@ class CaptureManager {
     this.isRecording = false;
     this._resetRecordingUI();
     this._updateCanvasSize(); // 恢复高清分辨率
+    // 录像结束，恢复摄像头按钮
+    this._setCameraButtonsDisabled(false);
     this._showToast('正在保存视频...');
   }
 
@@ -695,23 +724,58 @@ class CaptureManager {
       return;
     }
 
-    const blob = new Blob(this.recordedChunks, { type: this.recordedChunks[0].type || 'video/mp4' });
-    const url = URL.createObjectURL(blob);
+    const mimeType = this.recordedChunks[0].type || 'video/mp4';
+    const blob = new Blob(this.recordedChunks, { type: mimeType });
+    const ext = mimeType.includes('webm') ? 'webm' : 'mp4';
+    const filename = 'petals_' + this._timestamp() + '.' + ext;
 
-    if (this._isWeChat()) {
-      // 微信环境：弹出预览弹窗，让用户长按保存
-      this._showVideoPreview(url, blob);
-    } else {
-      // 非微信：直接下载
+    // 策略1：Web Share API（iOS Safari / Android Chrome 均支持，可直接保存到相册）
+    if (navigator.canShare && navigator.share) {
+      try {
+        const file = new File([blob], filename, { type: mimeType });
+        if (navigator.canShare({ files: [file] })) {
+          navigator.share({
+            files: [file],
+            title: '花瓣雨',
+          }).then(() => {
+            this._showToast('已分享/保存');
+          }).catch((err) => {
+            if (err.name !== 'AbortError') {
+              console.warn('视频分享失败:', err);
+              this._fallbackSaveVideo(blob, filename);
+            }
+          });
+          return;
+        }
+      } catch (shareErr) {
+        console.warn('Web Share API 异常:', shareErr);
+      }
+    }
+
+    // 策略2：降级方案
+    this._fallbackSaveVideo(blob, filename);
+  }
+
+  /**
+   * 降级保存视频：PC 用 <a download>，移动端弹出视频预览弹窗
+   */
+  _fallbackSaveVideo(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+
+    if (!isMobile) {
+      // PC 浏览器：<a download> 有效
       const a = document.createElement('a');
       a.href = url;
-      const ext = blob.type.includes('webm') ? 'webm' : 'mp4';
-      a.download = 'petals_' + this._timestamp() + '.' + ext;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 10000);
       this._showToast('视频已保存');
+    } else {
+      // 移动端：弹出视频预览弹窗，用户长按保存
+      this._showVideoPreview(url, blob);
     }
   }
 
@@ -772,6 +836,24 @@ class CaptureManager {
     this.$btnRecord.classList.remove('recording');
     this.$recordTime.classList.add('hidden');
     this.$recordTime.textContent = '00:00';
+  }
+
+  /**
+   * 录像时禁用/启用摄像头切换和开关按钮
+   */
+  _setCameraButtonsDisabled(disabled) {
+    const btnSwitch = document.getElementById('btn-switch-camera');
+    const btnToggle = document.getElementById('btn-toggle-camera');
+    [btnSwitch, btnToggle].forEach(btn => {
+      if (!btn) return;
+      if (disabled) {
+        btn.classList.add('ui-btn-disabled');
+        btn.style.pointerEvents = 'none';
+      } else {
+        btn.classList.remove('ui-btn-disabled');
+        btn.style.pointerEvents = '';
+      }
+    });
   }
 
   // ============================================

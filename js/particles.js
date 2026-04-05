@@ -185,93 +185,158 @@ class PetalParticleSystem {
   }
 
   /**
-   * 对纹理的 alpha 边缘做柔化处理（1~2px 高斯模糊 alpha 通道）
-   * 消除低分辨率 PNG 在放大后的硬边锯齿
+   * 对纹理做上采样 + 边缘 RGBA 统一高斯模糊
+   * 
+   * 核心思路：不只模糊 alpha，而是对 RGBA 四通道统一模糊。
+   * 这样边缘半透明区域的颜色会自然扩展（而非截断），
+   * 配合 GPU 端的 premultiplyAlpha 实现无缝混合。
+   * 
+   * 只在"边缘带"区域做模糊，内部完全不透明和外部完全透明区域保持不变。
    */
   _softenTextureAlpha(texture) {
     const img = texture.image;
     if (!img || !img.width || !img.height) return;
     
-    const w = img.width, h = img.height;
+    const origW = img.width, origH = img.height;
+    // 上采样 2 倍（浏览器双线性插值）
+    const w = origW * 2, h = origH * 2;
     const canvas = document.createElement('canvas');
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
     const data = imageData.data;
     
-    // 提取 alpha 通道
-    const alpha = new Float32Array(w * h);
-    for (let i = 0; i < w * h; i++) {
-      alpha[i] = data[i * 4 + 3] / 255;
+    // 提取 RGBA 为浮点数组
+    const totalPixels = w * h;
+    let r = new Float32Array(totalPixels);
+    let g = new Float32Array(totalPixels);
+    let b = new Float32Array(totalPixels);
+    let a = new Float32Array(totalPixels);
+    for (let i = 0; i < totalPixels; i++) {
+      r[i] = data[i * 4] / 255;
+      g[i] = data[i * 4 + 1] / 255;
+      b[i] = data[i * 4 + 2] / 255;
+      a[i] = data[i * 4 + 3] / 255;
     }
     
-    // 对 alpha 做 1px 高斯模糊（3×3 kernel）
-    // 只处理边缘区域（alpha 在 0~1 之间的像素及其邻域）
-    const blurred = new Float32Array(w * h);
-    const kernel = [
-      1/16, 2/16, 1/16,
-      2/16, 4/16, 2/16,
-      1/16, 2/16, 1/16
-    ];
+    // 7×7 高斯 kernel（σ ≈ 1.5，更宽的过渡带）
+    const kSize = 7, kHalf = 3;
+    const sigma = 1.5;
+    const kernel = new Float32Array(kSize * kSize);
+    let kSum = 0;
+    for (let ky = -kHalf; ky <= kHalf; ky++) {
+      for (let kx = -kHalf; kx <= kHalf; kx++) {
+        const v = Math.exp(-(kx * kx + ky * ky) / (2 * sigma * sigma));
+        kernel[(ky + kHalf) * kSize + (kx + kHalf)] = v;
+        kSum += v;
+      }
+    }
+    for (let i = 0; i < kernel.length; i++) kernel[i] /= kSum;
     
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const idx = y * w + x;
-        const a = alpha[idx];
-        
-        // 只对边缘附近像素做柔化（完全透明或完全不透明的内部区域跳过）
-        let isEdge = false;
-        if (a > 0.01 && a < 0.99) {
-          isEdge = true;
-        } else {
-          // 检查 3×3 邻域是否有 alpha 跳变
-          for (let ky = -1; ky <= 1 && !isEdge; ky++) {
-            for (let kx = -1; kx <= 1 && !isEdge; kx++) {
+    // 构建边缘 mask：alpha 有变化的区域及其 4px 邻域
+    const buildEdgeMask = (alphaArr) => {
+      const mask = new Uint8Array(totalPixels);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const av = alphaArr[y * w + x];
+          if (av > 0.005 && av < 0.995) { mask[y * w + x] = 1; continue; }
+          // 检查 4px 邻域
+          let found = false;
+          for (let ky = -4; ky <= 4 && !found; ky++) {
+            for (let kx = -4; kx <= 4 && !found; kx++) {
               const nx = x + kx, ny = y + ky;
               if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
-                const na = alpha[ny * w + nx];
-                if (Math.abs(na - a) > 0.3) isEdge = true;
+                if (Math.abs(alphaArr[ny * w + nx] - av) > 0.15) found = true;
               }
             }
           }
+          if (found) mask[y * w + x] = 1;
         }
-        
-        if (!isEdge) {
-          blurred[idx] = a;
-          continue;
-        }
-        
-        // 3×3 高斯卷积
-        let sum = 0;
-        let ki = 0;
-        for (let ky = -1; ky <= 1; ky++) {
-          for (let kx = -1; kx <= 1; kx++) {
-            const nx = Math.min(w - 1, Math.max(0, x + kx));
-            const ny = Math.min(h - 1, Math.max(0, y + ky));
-            sum += alpha[ny * w + nx] * kernel[ki];
-            ki++;
+      }
+      return mask;
+    };
+    
+    // 在边缘带先做颜色扩展：将不透明像素的颜色"渗透"到相邻的透明像素
+    // 这样模糊后半透明区域有正确的颜色，而不是混入黑色
+    for (let pass = 0; pass < 3; pass++) {
+      const newR = new Float32Array(r);
+      const newG = new Float32Array(g);
+      const newB = new Float32Array(b);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const idx = y * w + x;
+          if (a[idx] > 0.1) continue; // 已有颜色，跳过
+          // 从邻域找最近的不透明像素的颜色
+          let bestR = 0, bestG = 0, bestB = 0, bestA = 0;
+          for (let ky = -1; ky <= 1; ky++) {
+            for (let kx = -1; kx <= 1; kx++) {
+              const nx = x + kx, ny = y + ky;
+              if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+                const na = a[ny * w + nx];
+                if (na > bestA) {
+                  bestA = na;
+                  bestR = r[ny * w + nx];
+                  bestG = g[ny * w + nx];
+                  bestB = b[ny * w + nx];
+                }
+              }
+            }
+          }
+          if (bestA > 0.1) {
+            newR[idx] = bestR;
+            newG[idx] = bestG;
+            newB[idx] = bestB;
           }
         }
-        blurred[idx] = sum;
       }
+      r = newR; g = newG; b = newB;
     }
     
-    // 写回 alpha 通道，同时确保 RGB 是 premultiplied
-    for (let i = 0; i < w * h; i++) {
-      const newAlpha = Math.round(blurred[i] * 255);
-      const oldAlpha = data[i * 4 + 3];
-      if (newAlpha !== oldAlpha) {
-        // 对 alpha 减小的像素（边缘外侧），RGB 也需要等比缩小
-        if (newAlpha < oldAlpha && oldAlpha > 0) {
-          const ratio = newAlpha / oldAlpha;
-          data[i * 4]     = Math.round(data[i * 4] * ratio);
-          data[i * 4 + 1] = Math.round(data[i * 4 + 1] * ratio);
-          data[i * 4 + 2] = Math.round(data[i * 4 + 2] * ratio);
+    // 3 pass 7×7 高斯模糊（仅边缘区域，RGBA 四通道同步）
+    for (let pass = 0; pass < 3; pass++) {
+      const edgeMask = buildEdgeMask(a);
+      const nr = new Float32Array(totalPixels);
+      const ng = new Float32Array(totalPixels);
+      const nb = new Float32Array(totalPixels);
+      const na = new Float32Array(totalPixels);
+      
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const idx = y * w + x;
+          if (!edgeMask[idx]) {
+            nr[idx] = r[idx]; ng[idx] = g[idx]; nb[idx] = b[idx]; na[idx] = a[idx];
+            continue;
+          }
+          let sr = 0, sg = 0, sb = 0, sa = 0;
+          let ki = 0;
+          for (let ky = -kHalf; ky <= kHalf; ky++) {
+            for (let kx = -kHalf; kx <= kHalf; kx++) {
+              const nx = Math.min(w - 1, Math.max(0, x + kx));
+              const ny = Math.min(h - 1, Math.max(0, y + ky));
+              const nIdx = ny * w + nx;
+              const kv = kernel[ki++];
+              sr += r[nIdx] * kv;
+              sg += g[nIdx] * kv;
+              sb += b[nIdx] * kv;
+              sa += a[nIdx] * kv;
+            }
+          }
+          nr[idx] = sr; ng[idx] = sg; nb[idx] = sb; na[idx] = sa;
         }
-        data[i * 4 + 3] = newAlpha;
       }
+      r = nr; g = ng; b = nb; a = na;
+    }
+    
+    // 写回 RGBA（straight alpha，不做手动 premultiply — 交给 GPU 的 premultiplyAlpha）
+    for (let i = 0; i < totalPixels; i++) {
+      data[i * 4]     = Math.round(Math.min(1, Math.max(0, r[i])) * 255);
+      data[i * 4 + 1] = Math.round(Math.min(1, Math.max(0, g[i])) * 255);
+      data[i * 4 + 2] = Math.round(Math.min(1, Math.max(0, b[i])) * 255);
+      data[i * 4 + 3] = Math.round(Math.min(1, Math.max(0, a[i])) * 255);
     }
     
     ctx.putImageData(imageData, 0, 0);
@@ -534,12 +599,11 @@ class PetalParticleSystem {
       rotSign: rotSign,                      // 旋转方向
       life: maxLife,
       maxLife: maxLife,
-      upForce: 1.5 + intensity * 2.5,       // 上升力
+      upForce: 0.6 + intensity * 1.0,       // 上升力（降低，避免花瓣停滞空中）
       rampUp: 0.2,                           // 启动延迟（秒）
     });
     
-    this._vortexCooldown = 0.5; // 0.5 秒冷却
-    console.log(`[涡流] 生成! 位置=(${vx.toFixed(1)},${vy.toFixed(1)},${vz.toFixed(1)}) 强度=${intensity.toFixed(2)} 方向=${rotSign > 0 ? '顺时针' : '逆时针'}`);
+    this._vortexCooldown = 1.5; // 1.5 秒冷却（避免连续触发多个涡流）
   }
 
   /**
@@ -901,6 +965,11 @@ class PetalParticleSystem {
         if (this._projVec.z > 0 && this._projVec.z < 1 && sx >= 0 && sx < screenW && sy >= 0 && sy < screenH) {
           const hit = this.bodyCollision.testPoint(sx, sy);
           if (hit.hit) {
+            // 根据人物距离微调停靠花瓣大小：近处稍大，远处保持
+            // scaleMult: 距离 0(很近) → 1.6×, 距离 0.5 → 1.3×, 距离 1(远) → 1.0×
+            const dist = this.bodyCollision.estimatedDistance;
+            const scaleMult = 1.0 + (1.0 - dist) * 0.6;
+            p.scale = Math.min(p.scale * scaleMult, 1.2); // 上限 1.2 防止过大
             // 进入 landing 着陆过渡（而非直接 resting）
             p.state = 'landing';
             p.landingTimer = 0;

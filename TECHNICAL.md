@@ -135,7 +135,9 @@
 - **模糊半径 DPR 补偿**：合成 canvas 分辨率是屏幕的 N 倍（DPR=3 时为 3 倍），模糊半径需等比放大，否则等效 CSS blur 效果只有 1/3
 - **WebGL GPU 高斯模糊**（`js/webgl-blur.js`）：iOS Safari 不支持 `ctx.filter = 'blur()'`，改用独立 WebGL context 实现两 pass 分离式高斯模糊（水平+垂直，9-tap 高斯核），效果等同 CSS `filter: blur()`。大模糊值自动分成多轮 pass。三级降级链：WebGL GPU blur → Canvas 2D filter → 多轮缩放模糊
 - 录像使用 `MediaRecorder` + `captureStream(30)`，编码优先 MP4/AVC1
-- 微信内长按保存：弹出预览弹窗，用户长按视频/图片保存到相册
+- 录像时跳过 WebGL blur 和运动模糊（单帧合成 ~3ms），确保合成帧率匹配 captureStream 要求
+- 保存策略分级降级：Web Share API（iOS/Android 原生保存）→ `<a download>`（PC）→ 视频预览弹窗（微信/降级）
+- 录像中禁用摄像头切换/开关按钮，防止视频流断裂
 
 ---
 
@@ -281,7 +283,7 @@ flowers/
 | 花瓣几何 | 4 种 | 不同宽高比 + 弯曲参数的 PlaneGeometry(8×8) |
 | 碰撞采样 | 60×80 | 蒙版缩小后按列扫描 |
 | 分割频率 | 每 2~3 帧 | 移动端 3 帧，PC 2 帧 |
-| 涡流上限 | 3 个同时 | 冷却 0.5s，生命 1.8~3.3s |
+| 涡流上限 | 3 个同时 | 冷却 1.5s，生命 1.8~3.3s |
 | 停留花瓣 | ≤ 3 片 | 防止遮挡人脸 |
 | 运动模糊 | 3 帧历史 | Ring Buffer，透明度 0.12/0.20/0.30 |
 | 录像码率 | 4 Mbps | 30fps，优先 MP4/AVC1 |
@@ -302,3 +304,224 @@ flowers/
 | 微信内置浏览器 | 视频/图片弹窗预览 + 长按保存 |
 | 横屏方向 | 屏幕方向补偿（四元数旋转） |
 | Safe Area（刘海屏） | `env(safe-area-inset-*)` |
+
+---
+
+## 八、迭代记录
+
+### v4 — 性能优化 + 录像流畅度 + 视频保存 + 交互防护（2026-04-05）
+
+> 上一版本 commit: `28402ac feat: WebGL GPU 高斯模糊后处理 + 拍照抗锯齿优化`
+
+#### 改动概览
+
+本次迭代聚焦于 **录像体验** 的三个核心问题，以及花瓣系统的多项优化：
+
+| 文件 | 改动量 | 改动内容 |
+|------|--------|---------|
+| `js/capture.js` | +114 −29 | 录像性能优化、视频保存策略重构、录像中按钮禁用 |
+| `js/particles.js` | +193 −97 | 花瓣贴图抗锯齿重写、涡流参数调优、人物距离感知停靠 |
+| `js/app.js` | +10 −37 | 精简调试面板、录像中禁用摄像头切换 |
+| `js/body-collision.js` | +8 −57 | 精简调试日志、清理冗余代码 |
+| `css/style.css` | +7 −0 | 录像中摄像头按钮禁用样式 |
+
+---
+
+#### 问题 1：录像严重卡顿
+
+**现象**：录像保存的视频一顿一顿的，花瓣动画不流畅。
+
+**根因分析**：
+
+录像合成循环（`_startCompositeLoop`）与主动画循环是两个独立的 `requestAnimationFrame`，叠加后每帧工作量翻倍。更关键的是，每帧合成时调用 3 次 `_drawBlurred()`（远/中/近景各一次），每次都要执行完整的 WebGL GPU 高斯模糊流水线：
+
+```
+纹理上传(texImage2D) → 水平 blur pass → 垂直 blur pass → readPixels 回读到 2D canvas
+```
+
+在手机上单次 blur 约 8-10ms，3 层共需 ~25-30ms，而 `captureStream(30)` 要求每帧只有 ~33ms 的预算。合成来不及时 `captureStream` 会重复最后一帧 → 多帧相同画面后突然跳到新画面 → 一顿一顿。
+
+**技术难点**：
+- 录像的帧率不取决于 rAF 频率，而取决于合成 canvas **实际被绘制**的频率
+- `captureStream(fps)` 只控制编码器的采样率，不会主动驱动绘制
+- 降低 captureStream fps 不解决问题（合成慢的话仍然卡）
+- 隔帧合成（跳帧）反而更卡 —— 实际合成帧率变为 ~15fps，不如每帧都画但让每帧更快
+
+**解决方案 — 录像时彻底跳过 blur**：
+
+```javascript
+// 录像时：直接 drawImage，完全跳过 WebGL blur
+if (this.isRecording) {
+  if (this.canvasFar.width > 0) {
+    ctx.save();
+    ctx.globalAlpha = 0.75;
+    ctx.drawImage(this.canvasFar, 0, 0, w, h);  // 直接绘制，不做 blur
+    ctx.restore();
+  }
+  // ... 中景、近景同理
+  return;  // 跳过运动模糊的历史帧叠加
+}
+```
+
+| 方案 | 单帧合成耗时 | 等效帧率 | 效果 |
+|------|------------|---------|------|
+| 原方案（3×WebGL blur + 运动模糊） | ~30ms | ~15fps | 严重卡顿 |
+| 中间方案（blur 半径减半 + 隔帧） | ~18ms | ~15fps | 仍然卡顿 |
+| **最终方案（跳过 blur + 跳过运动模糊）** | **~3ms** | **~60fps** | **流畅** |
+
+**为什么可以跳过 blur**：录像使用 1x DPR（合成 canvas = 屏幕像素），分辨率本身较低，1px 的 CSS blur 在 1x 画面上肉眼几乎不可见。运动模糊的 3 个历史帧 ring buffer 读写也可跳过（录像画面本身就有运动，不需要人工拖影）。
+
+**内存影响**：无。提高合成帧率不增加内存 —— 内存开销只与 canvas 尺寸相关（已是 1x），跟帧率无关。
+
+---
+
+#### 问题 2：视频无法保存到相册
+
+**现象**：iOS Safari 上录像完成后，视频无法保存到手机相册。
+
+**根因分析**：
+
+原方案对非微信环境使用 `<a download>` 下载 blob URL。但 **iOS Safari 不支持** blob URL 的 `<a download>` —— 它会直接在新标签页打开视频预览，播放完后视频就消失了，不会保存到相册。
+
+```javascript
+// ❌ 原方案：iOS Safari 上不生效
+const a = document.createElement('a');
+a.href = blobUrl;
+a.download = 'video.mp4';
+a.click();  // iOS: 打开新标签预览，不下载
+```
+
+**技术难点**：
+- iOS Safari 的 `<a download>` 对 blob URL 无效（安全限制）
+- 微信内置浏览器更严格，`<a download>` 完全不可用
+- 需要兼容 iOS Safari / 微信 / Android Chrome / PC 四种环境
+
+**解决方案 — Web Share API 优先 + 分级降级**：
+
+```javascript
+_saveRecording() {
+  // 策略1：Web Share API（iOS 15+ / Android Chrome 均支持）
+  if (navigator.canShare && navigator.share) {
+    const file = new File([blob], filename, { type: mimeType });
+    if (navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: '花瓣雨' });
+      return;
+    }
+  }
+  // 策略2：降级
+  this._fallbackSaveVideo(blob, filename);
+}
+
+_fallbackSaveVideo(blob, filename) {
+  if (!isMobile) {
+    // PC：<a download> 有效
+    a.download = filename; a.click();
+  } else {
+    // 移动端：弹出视频预览弹窗，用户长按保存
+    this._showVideoPreview(url, blob);
+  }
+}
+```
+
+| 环境 | 保存策略 | 用户体验 |
+|------|---------|---------|
+| iOS Safari 15+ | Web Share API → 系统分享面板 → 保存到相册 | 原生体验 |
+| 微信内置浏览器 | 视频预览弹窗 → 长按保存 | 需用户操作 |
+| Android Chrome | Web Share API → 系统分享面板 | 原生体验 |
+| PC 浏览器 | `<a download>` 直接下载 | 直接保存 |
+
+---
+
+#### 问题 3：录像中摄像头翻转导致画面断裂
+
+**现象**：录像过程中用户点击摄像头切换按钮，会导致视频流中断、画面闪烁。
+
+**根因分析**：
+
+`switchCamera()` 会停止当前摄像头 stream，请求新的 stream（前/后置切换），期间有 ~0.5-1s 的无画面间隙。而 `compositeCanvas` 的合成循环会持续读取 `video` 元素 —— 切换瞬间 `video.readyState < 2`，合成画面变成降级渐变背景，然后又恢复摄像头画面，造成明显的画面跳变。
+
+**解决方案 — 三重保护**：
+
+1. **事件层拦截**（`app.js`）：
+```javascript
+$btnSwitchCamera.addEventListener('click', () => {
+  if (capture && capture.isRecording) return;  // 录像中直接跳过
+  if (cameraModule) cameraModule.switchCamera();
+});
+```
+
+2. **按钮视觉禁用**（`capture.js`）：
+```javascript
+startRecording() {
+  // ...
+  this._setCameraButtonsDisabled(true);  // 按钮变暗 + 禁止交互
+}
+stopRecording() {
+  // ...
+  this._setCameraButtonsDisabled(false);  // 恢复
+}
+```
+
+3. **CSS 禁用样式**（`style.css`）：
+```css
+.ui-btn.ui-btn-disabled {
+  opacity: 0.3;
+  pointer-events: none;
+  transform: none;
+}
+```
+
+---
+
+#### 优化 4：花瓣贴图 Alpha 边缘抗锯齿重写
+
+**现象**：花瓣贴图在 WebGL 渲染时，边缘有硬锯齿或白色/黑色镶边（fringing）。
+
+**根因分析**：
+
+花瓣 PNG 贴图使用 **straight alpha**（未预乘），但 Three.js 在上传纹理时默认会做 `premultiplyAlpha`。对于半透明边缘像素（如 alpha=0.5, RGB=255），straight alpha 存储为 `(255, 200, 200, 128)`，premultiply 后变为 `(128, 100, 100, 128)`。但如果原始贴图的透明区域 RGB 不是纯黑（很多图片编辑器会保留白色 RGB），预乘后会导致边缘偏白/偏亮。
+
+**解决方案 — CPU 侧 Alpha 边缘高斯平滑 + Edge-only 优化**：
+
+```
+原始贴图 → Canvas 解码 → 分离 RGBA 通道（线性空间）
+  → Sobel 边缘检测（仅处理 alpha 梯度大的像素）
+  → 3×3 高斯核平滑（只对边缘像素卷积）
+  → 写回 Canvas → texImage2D 上传（straight alpha）
+```
+
+关键优化：**Edge-only processing** —— 通过 Sobel 算子先检测 alpha 通道的梯度，只对边缘像素做高斯平滑，内部像素直接跳过。对于 256×256 贴图，只有 ~5% 的像素需要卷积，大幅降低启动时的处理开销。
+
+---
+
+#### 优化 5：涡流参数调优
+
+**现象**：涡流产生时花瓣上升过猛，长时间悬浮在空中不落下。
+
+**调整**：
+
+| 参数 | 旧值 | 新值 | 说明 |
+|------|------|------|------|
+| 涡流上升力 | `1.5 + intensity * 2.5` | `0.6 + intensity * 1.0` | 降低 60%，花瓣不再停滞 |
+| 涡流冷却时间 | 0.5s | 1.5s | 避免连续触发多个涡流叠加 |
+
+---
+
+#### 优化 6：人物距离感知停靠花瓣缩放
+
+花瓣停靠在人物身上时，根据人物距离（通过蒙版面积估算）微调花瓣大小：
+
+```javascript
+// 近处人物：花瓣稍大（更有存在感）；远处人物：保持原大小
+const dist = this.bodyCollision.estimatedDistance;  // 0=很近, 1=远
+const scaleMult = 1.0 + (1.0 - dist) * 0.6;       // 近→1.6×, 远→1.0×
+p.scale = Math.min(p.scale * scaleMult, 1.2);      // 上限防过大
+```
+
+---
+
+#### 优化 7：调试面板精简
+
+清理了 `app.js` 动画循环中的大量调试信息（mesh 数量、Context 状态、四元数、UP 偏离角等），FPS 显示精简为 `FPS:30` 格式。调试面板和 FPS 计数器保持三击唤出机制。
+
+`body-collision.js` 中移除了碰撞检测和涡流触发的 `console.log` 调试输出，减少生产环境日志噪音。

@@ -272,6 +272,13 @@ html, body {
   transform: scale(0.95);
 }
 
+/* 录像中禁用摄像头按钮 */
+.ui-btn.ui-btn-disabled {
+  opacity: 0.3;
+  pointer-events: none;
+  transform: none;
+}
+
 .petal-control {
   pointer-events: auto;
   display: flex;

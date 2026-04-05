@@ -225,40 +225,10 @@
       }
 
       if (particles.fps > 0) {
-        const restCount = particles.restingCount || 0;
-        const restInfo = restCount > 0 ? ` | 停留: ${restCount}` : '';
-        const vortexCount = particles.vortices ? particles.vortices.length : 0;
-        const vortexInfo = vortexCount > 0 ? ` | 涡流: ${vortexCount}` : '';
-        const ctxLost = particles._contextLost ? ' | ⚠️CTX LOST' : '';
-        const hasRenderer = particles.renderer ? ' | R:✓' : ' | R:✗';
-        const meshCount = particles.instancedMeshes ? particles.instancedMeshes.length : 0;
-        const glOk = (particles.renderer && particles.renderer.getContext && !particles.renderer.getContext().isContextLost()) ? '' : ' | GL:✗';
-        $fpsCounter.textContent = `FPS:${particles.fps} 瓣:${particles.petalCount} M:${meshCount}${ctxLost}${hasRenderer}${glOk}${restInfo}${vortexInfo}`;
+        $fpsCounter.textContent = `FPS:${particles.fps}`;
       }
 
-      // 调试面板：显示相机 up 向量 + 四元数
-      if ($debugPanel && $debugPanel.style.display !== 'none' && particles && particles.camera) {
-        const cam = particles.camera;
-        // 相机局部 Y+ 轴在世界空间的方向（= 屏幕上方指向世界的哪里）
-        const up = new THREE.Vector3(0, 1, 0).applyQuaternion(cam.quaternion);
-        // 相机局部 -Z 轴在世界空间（= 相机看向的方向）
-        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
-        const q = cam.quaternion;
-        const camData = gyroscope.getCameraData();
-        const mode = camData.mode || '?';
-
-        let txt = `模式: ${mode}\n`;
-        txt += `cam UP  : (${up.x.toFixed(3)}, ${up.y.toFixed(3)}, ${up.z.toFixed(3)})\n`;
-        txt += `cam FWD : (${fwd.x.toFixed(3)}, ${fwd.y.toFixed(3)}, ${fwd.z.toFixed(3)})\n`;
-        txt += `quat    : (${q.x.toFixed(3)}, ${q.y.toFixed(3)}, ${q.z.toFixed(3)}, ${q.w.toFixed(3)})\n`;
-        // 判断：up.y 应该接近 1.0（世界Y+），如果偏离说明有问题
-        const upAngle = Math.acos(Math.min(1, Math.abs(up.y))) * 180 / Math.PI;
-        txt += `UP偏离垂直: ${upAngle.toFixed(1)}°`;
-        if (upAngle > 30) txt += ' ⚠️偏差大!';
-        if (up.y < 0) txt += ' ❌上下颠倒!';
-
-        $debugPanel.textContent = txt;
-      }
+      // 调试面板已关闭
     }
     loop();
   }
@@ -280,10 +250,12 @@
     $btnStart.addEventListener('touchend', startHandler);
 
     $btnSwitchCamera.addEventListener('click', () => {
+      if (capture && capture.isRecording) return; // 录像中禁用
       if (cameraModule) cameraModule.switchCamera();
     });
     $btnSwitchCamera.addEventListener('touchend', (e) => {
       e.preventDefault();
+      if (capture && capture.isRecording) return; // 录像中禁用
       if (cameraModule) cameraModule.switchCamera();
     });
 
@@ -293,6 +265,7 @@
       const now = Date.now();
       if (now - toggleCameraTimer < 500) return;
       toggleCameraTimer = now;
+      if (capture && capture.isRecording) return; // 录像中禁用
       if (cameraModule) cameraModule.toggleCamera();
     };
 

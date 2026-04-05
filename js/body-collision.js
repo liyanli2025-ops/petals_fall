@@ -53,6 +53,8 @@ class BodyCollisionDetector {
     this._motionSmoothed = 0;        // 平滑后的运动量
     this._motionThreshold = 0.025;   // 触发大动作的阈值
     this._motionDecay = 0.92;        // 运动强度衰减系数
+    this._warmupFrames = 0;          // 预热帧计数器
+    this._warmupThreshold = 15;      // 前 N 帧不做运动检测（等分割稳定）
     
     // 屏幕尺寸
     this.screenW = window.innerWidth;
@@ -190,12 +192,6 @@ class BodyCollisionDetector {
     const total = w * h;
     const bodyRatio = bodyPixelCount / total;
     if (bodyRatio < 0.005 && this.hasValidData) {
-      // 调试日志
-      if (!this._debugCount) this._debugCount = 0;
-      this._debugCount++;
-      if (this._debugCount <= 5) {
-        console.log(`[碰撞#${this._debugCount}] 跳过空帧: ${bodyPixelCount}/${total} (${(bodyRatio*100).toFixed(1)}%), 保留上一帧数据`);
-      }
       this.lastUpdateTime = performance.now();
       return;
     }
@@ -214,7 +210,10 @@ class BodyCollisionDetector {
     const curCenterX = bodyPixelCount > 0 ? (sumX / bodyPixelCount) / w : 0.5;
     const curCenterY = bodyPixelCount > 0 ? (sumY / bodyPixelCount) / h : 0.5;
     
-    if (this.prevMaskArea > 0 && bodyPixelCount > 0) {
+    // 预热期：前 N 帧分割结果不稳定，跳过运动检测避免误触发涡流
+    this._warmupFrames++;
+    
+    if (this._warmupFrames > this._warmupThreshold && this.prevMaskArea > 0 && bodyPixelCount > 0) {
       // 面积变化率（归一化到总像素）
       const areaDelta = Math.abs(bodyPixelCount - this.prevMaskArea) / total;
       // 重心偏移（归一化距离）
@@ -267,50 +266,6 @@ class BodyCollisionDetector {
     // 有效帧，更新碰撞数据
     this.maskData = tempMask;
     this.topEdge.set(tempEdge);
-    
-    // 调试日志（前5帧）
-    if (!this._debugCount) this._debugCount = 0;
-    this._debugCount++;
-    if (this._debugCount <= 5) {
-      const ratio = (bodyRatio * 100).toFixed(1);
-      console.log(`[碰撞#${this._debugCount}] 蒙版: ${bodyPixelCount}/${total} 像素为人物 (${ratio}%)`);
-      console.log(`[碰撞#${this._debugCount}] 蒙版源尺寸: ${mask.width || '?'}×${mask.height || '?'}, 视频: ${this._videoW}×${this._videoH}, 屏幕: ${this.screenW}×${this.screenH}`);
-      console.log(`[碰撞#${this._debugCount}] cover映射: offsetX=${this._coverOffsetX.toFixed(3)} offsetY=${this._coverOffsetY.toFixed(3)} scaleX=${this._coverScaleX.toFixed(3)} scaleY=${this._coverScaleY.toFixed(3)}`);
-      
-      // 采样前10个像素的 RGBA 看看蒙版格式
-      if (this._debugCount === 1) {
-        const samples = [];
-        for (let i = 0; i < Math.min(10, data.length / 4); i++) {
-          samples.push(`(${data[i*4]},${data[i*4+1]},${data[i*4+2]},${data[i*4+3]})`);
-        }
-        console.log(`[碰撞] 前10像素RGBA: ${samples.join(' ')}`);
-        
-        // 中间行采样
-        const midRow = Math.floor(h / 2);
-        const midSamples = [];
-        for (let x = 0; x < w; x += 5) {
-          const idx2 = (midRow * w + x) * 4;
-          const b2 = Math.round((data[idx2] + data[idx2+1] + data[idx2+2]) / 3);
-          midSamples.push(b2);
-        }
-        console.log(`[碰撞] 中间行亮度(每5列): ${midSamples.join(',')}`);
-      }
-      
-      const bodyCols = [];
-      let minEdgeY = 1, maxEdgeY = 0;
-      for (let x = 0; x < w; x++) {
-        if (this.topEdge[x] >= 0) {
-          bodyCols.push(x);
-          minEdgeY = Math.min(minEdgeY, this.topEdge[x]);
-          maxEdgeY = Math.max(maxEdgeY, this.topEdge[x]);
-        }
-      }
-      if (bodyCols.length > 0) {
-        console.log(`[碰撞#${this._debugCount}] 有人物的列: ${bodyCols[0]}~${bodyCols[bodyCols.length-1]} (共${bodyCols.length}/${w}列), topEdge范围: ${minEdgeY.toFixed(3)}~${maxEdgeY.toFixed(3)}`);
-      } else {
-        console.log(`[碰撞#${this._debugCount}] ⚠️ 没有检测到任何人物列！`);
-      }
-    }
     
     // 平滑上边缘（3 像素窗口中值滤波，减少噪声跳变）
     const smoothed = new Float32Array(w);
