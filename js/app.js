@@ -173,7 +173,11 @@
       // === 4.5 初始化拍照/录像 ===
       capture = new CaptureManager();
       capture.cameraManager = cameraModule;
+      capture.particleSystem = particles;
       capture.init();
+
+      // 暴露 gyroscope 到全局，供拍照时获取相机数据
+      window._gyroscope = gyroscope;
 
       if (!cameraModule.hasCamera) {
         $btnSwitchCamera.classList.add('hidden');

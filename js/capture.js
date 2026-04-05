@@ -32,6 +32,9 @@ class CaptureManager {
     // 外部注入 CameraManager 引用（用于判断前置/后置）
     this.cameraManager = null;
 
+    // 外部注入 PetalParticleSystem 引用（拍照时临时提升 DPR）
+    this.particleSystem = null;
+
     // === 运动模糊（多帧累积） ===
     // 保存最近 N 帧的花瓣层快照，合成时叠加产生拖影
     this._motionBlurFrames = 3;         // 保留历史帧数
@@ -83,7 +86,7 @@ class CaptureManager {
   }
 
   _updateCanvasSize() {
-    const dpr = this.isRecording ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = this.isRecording ? 1 : Math.min(window.devicePixelRatio || 1, 3);
     this.compositeCanvas.width = window.innerWidth * dpr;
     this.compositeCanvas.height = window.innerHeight * dpr;
   }
@@ -173,29 +176,29 @@ class CaptureManager {
     const tmpCtx = this._petalTempCtx;
     tmpCtx.clearRect(0, 0, w, h);
 
+    // DPR 补偿：合成 canvas 分辨率是屏幕的 N 倍，模糊半径需等比放大
+    const compositeDPR = w / window.innerWidth;
+
     // 2. 远景花瓣层（CSS blur(1px) 对应 + 轻微降透）
     if (this.canvasFar.width > 0) {
       tmpCtx.save();
       tmpCtx.globalAlpha = 0.75;
-      this._drawBlurred(tmpCtx, this.canvasFar, w, h, 1);
+      this._drawBlurred(tmpCtx, this.canvasFar, w, h, 1 * compositeDPR);
       tmpCtx.restore();
     }
 
-    // 3. 中景花瓣层（无模糊）
+    // 3. 中景花瓣层（加微模糊消除锯齿）
     if (this.canvasMid.width > 0) {
-      tmpCtx.drawImage(this.canvasMid, 0, 0, w, h);
+      this._drawBlurred(tmpCtx, this.canvasMid, w, h, 0.8 * compositeDPR);
     }
 
     // 4. 人物遮罩层 — 录制合成时跳过！
-    // canvasPerson 只在屏幕实时显示时用于 CSS z-index 分层（让人物遮挡远景花瓣）。
-    // 合成到单个 canvas 时，底层视频已包含完整人物画面，
-    // 再叠 canvasPerson 会导致人物区域被 alpha blend 两次 → 残影。
 
-    // 5. 近景花瓣层（CSS blur(4px) 对应 + 降低透明度，更自然的景深虚化）
+    // 5. 近景花瓣层（CSS blur(4px) 对应 + 降低透明度）
     if (this.canvasNear.width > 0) {
       tmpCtx.save();
       tmpCtx.globalAlpha = 0.55;
-      this._drawBlurred(tmpCtx, this.canvasNear, w, h, 4);
+      this._drawBlurred(tmpCtx, this.canvasNear, w, h, 4 * compositeDPR);
       tmpCtx.restore();
     }
 
@@ -245,21 +248,25 @@ class CaptureManager {
     // 所以这里每次读到的 canvasFar/canvasMid/canvasNear 都是最新一帧的位置。
     // 我们只需把当前帧花瓣快照存入 buffer 即可
     // （真正的时间差异来自动画循环中花瓣的位移，预缓存确保 buffer 非空）
+    // DPR 补偿：与 _composite() 保持一致
+    const compositeDPR = w / window.innerWidth;
+
     for (let f = 0; f < this._motionBlurFrames; f++) {
       tmpCtx.clearRect(0, 0, w, h);
+
       if (this.canvasFar.width > 0) {
         tmpCtx.save();
         tmpCtx.globalAlpha = 0.75;
-        this._drawBlurred(tmpCtx, this.canvasFar, w, h, 1);
+        this._drawBlurred(tmpCtx, this.canvasFar, w, h, 1 * compositeDPR);
         tmpCtx.restore();
       }
       if (this.canvasMid.width > 0) {
-        tmpCtx.drawImage(this.canvasMid, 0, 0, w, h);
+        this._drawBlurred(tmpCtx, this.canvasMid, w, h, 0.8 * compositeDPR);
       }
       if (this.canvasNear.width > 0) {
         tmpCtx.save();
         tmpCtx.globalAlpha = 0.55;
-        this._drawBlurred(tmpCtx, this.canvasNear, w, h, 4);
+        this._drawBlurred(tmpCtx, this.canvasNear, w, h, 4 * compositeDPR);
         tmpCtx.restore();
       }
       const writeBuf = this._petalHistoryBuffers[this._historyWriteIndex];
@@ -271,15 +278,29 @@ class CaptureManager {
   }
 
   /**
-   * 兼容 iOS Safari 的模糊绘制
-   * 一次性检测 ctx.filter 是否真正有效，无效时降级为多次缩放模糊
+   * 高质量模糊绘制（多级方案）
+   * 1. 优先使用 WebGL GPU 高斯模糊（效果等同 CSS blur）
+   * 2. 次选 Canvas 2D ctx.filter（Chrome/Firefox 支持）
+   * 3. 降级：多轮缩放模糊
    */
   _drawBlurred(ctx, sourceCanvas, w, h, blurRadius) {
-    // 一次性检测 ctx.filter 是否真正生效
+    // 确保所有绘制都启用高质量平滑
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    // 方案 1：WebGL GPU 高斯模糊（iOS Safari 最佳方案）
+    if (!this._webglBlur) {
+      this._webglBlur = new WebGLBlurRenderer();
+    }
+    if (this._webglBlur.isReady) {
+      const ok = this._webglBlur.blur(ctx, sourceCanvas, w, h, blurRadius);
+      if (ok) return;
+    }
+
+    // 方案 2：Canvas 2D filter（Chrome/Firefox 支持，iOS Safari 不支持）
     if (this._filterSupported === undefined) {
       this._filterSupported = this._testFilterSupport();
     }
-
     if (this._filterSupported) {
       ctx.filter = `blur(${blurRadius}px)`;
       ctx.drawImage(sourceCanvas, 0, 0, w, h);
@@ -287,7 +308,7 @@ class CaptureManager {
       return;
     }
 
-    // 降级方案：多轮缩放模糊（效果更接近真实 blur）
+    // 方案 3：降级 — 多轮缩放模糊
     if (!this._blurCanvas) {
       this._blurCanvas = document.createElement('canvas');
       this._blurCtx = this._blurCanvas.getContext('2d');
@@ -297,8 +318,7 @@ class CaptureManager {
       this._blurCtx2 = this._blurCanvas2.getContext('2d');
     }
 
-    // 第1轮：大幅缩小
-    const s1 = Math.max(0.08, 1 / (1 + blurRadius * 1.5));
+    const s1 = Math.max(0.05, 1 / (1 + blurRadius * 2.0));
     const bw1 = Math.max(2, Math.floor(w * s1));
     const bh1 = Math.max(2, Math.floor(h * s1));
     this._blurCanvas.width = bw1;
@@ -307,19 +327,27 @@ class CaptureManager {
     this._blurCtx.imageSmoothingQuality = 'high';
     this._blurCtx.drawImage(sourceCanvas, 0, 0, bw1, bh1);
 
-    // 第2轮：放大到中间尺寸（进一步柔化）
-    const midW = Math.floor(w * 0.5);
-    const midH = Math.floor(h * 0.5);
+    const midScale = Math.min(0.5, 0.25 + blurRadius * 0.02);
+    const midW = Math.max(4, Math.floor(w * midScale));
+    const midH = Math.max(4, Math.floor(h * midScale));
     this._blurCanvas2.width = midW;
     this._blurCanvas2.height = midH;
     this._blurCtx2.imageSmoothingEnabled = true;
     this._blurCtx2.imageSmoothingQuality = 'high';
     this._blurCtx2.drawImage(this._blurCanvas, 0, 0, bw1, bh1, 0, 0, midW, midH);
 
-    // 第3轮：放大到目标尺寸
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(this._blurCanvas2, 0, 0, midW, midH, 0, 0, w, h);
+    if (blurRadius > 2) {
+      this._blurCanvas.width = midW;
+      this._blurCanvas.height = midH;
+      this._blurCtx.drawImage(this._blurCanvas2, 0, 0);
+      const midW2 = Math.max(4, Math.floor(w * 0.35));
+      const midH2 = Math.max(4, Math.floor(h * 0.35));
+      this._blurCanvas2.width = midW2;
+      this._blurCanvas2.height = midH2;
+      this._blurCtx2.drawImage(this._blurCanvas, 0, 0, midW, midH, 0, 0, midW2, midH2);
+    }
+
+    ctx.drawImage(this._blurCanvas2, 0, 0, this._blurCanvas2.width, this._blurCanvas2.height, 0, 0, w, h);
   }
 
   /**
@@ -371,6 +399,29 @@ class CaptureManager {
       this._updateCanvasSize();
     }
 
+    // === 拍照前临时提升 WebGL DPR 到设备原生分辨率 ===
+    // 拍照是单帧操作，不需要持续高帧率，可以承受更高 DPR
+    let dprRestored = false;
+    const ps = this.particleSystem;
+    if (ps && ps.renderer && !this.isRecording) {
+      const nativeDPR = Math.min(window.devicePixelRatio || 1, 3);
+      const currentDPR = ps.renderer.getPixelRatio();
+      if (nativeDPR > currentDPR) {
+        console.log(`[拍照] 临时提升 WebGL DPR: ${currentDPR} → ${nativeDPR}`);
+        ps.renderer.setPixelRatio(nativeDPR);
+        ps.renderer.setSize(window.innerWidth, window.innerHeight);
+        // 同步更新 2D 显示层分辨率
+        const dpr2d = Math.min(window.devicePixelRatio || 1, 3);
+        for (const layer of Object.values(ps.displayLayers)) {
+          layer.canvas.width = window.innerWidth * dpr2d;
+          layer.canvas.height = window.innerHeight * dpr2d;
+        }
+        // 强制渲染一帧高清花瓣（复用 update 中的 3-pass 渲染逻辑）
+        ps.update(window._gyroscope ? window._gyroscope.getCameraData() : null);
+        dprRestored = true;
+      }
+    }
+
     try {
       // 预缓存花瓣层历史帧，确保运动模糊有数据
       // 录像中已经有持续的 composite loop 在积累历史帧，无需额外预缓存
@@ -381,7 +432,29 @@ class CaptureManager {
     } catch (err) {
       console.error('合成画面失败:', err);
       this._showToast('拍照失败: 合成出错');
+      // 恢复 DPR
+      if (dprRestored && ps && ps.renderer) {
+        ps.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        ps.renderer.setSize(window.innerWidth, window.innerHeight);
+        const dprRestore = Math.min(window.devicePixelRatio || 1, 2);
+        for (const layer of Object.values(ps.displayLayers)) {
+          layer.canvas.width = window.innerWidth * dprRestore;
+          layer.canvas.height = window.innerHeight * dprRestore;
+        }
+      }
       return;
+    }
+
+    // === 恢复 WebGL DPR ===
+    if (dprRestored && ps && ps.renderer) {
+      ps.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      ps.renderer.setSize(window.innerWidth, window.innerHeight);
+      const dprRestore = Math.min(window.devicePixelRatio || 1, 2);
+      for (const layer of Object.values(ps.displayLayers)) {
+        layer.canvas.width = window.innerWidth * dprRestore;
+        layer.canvas.height = window.innerHeight * dprRestore;
+      }
+      console.log('[拍照] WebGL DPR 已恢复');
     }
 
     // 闪光效果

@@ -109,11 +109,12 @@ class PetalParticleSystem {
         canvas: this.canvas,
         alpha: true,
         antialias: true,
+        premultipliedAlpha: true,
         powerPreference: 'high-performance',
         preserveDrawingBuffer: false
       });
       this.renderer.setSize(window.innerWidth, window.innerHeight);
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // 3-pass 需要更低 DPR 保性能
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 提升渲染质量
       this.renderer.setClearColor(0x000000, 0);
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
       this.renderer.toneMappingExposure = 1.2;
@@ -183,6 +184,101 @@ class PetalParticleSystem {
     }
   }
 
+  /**
+   * 对纹理的 alpha 边缘做柔化处理（1~2px 高斯模糊 alpha 通道）
+   * 消除低分辨率 PNG 在放大后的硬边锯齿
+   */
+  _softenTextureAlpha(texture) {
+    const img = texture.image;
+    if (!img || !img.width || !img.height) return;
+    
+    const w = img.width, h = img.height;
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const data = imageData.data;
+    
+    // 提取 alpha 通道
+    const alpha = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      alpha[i] = data[i * 4 + 3] / 255;
+    }
+    
+    // 对 alpha 做 1px 高斯模糊（3×3 kernel）
+    // 只处理边缘区域（alpha 在 0~1 之间的像素及其邻域）
+    const blurred = new Float32Array(w * h);
+    const kernel = [
+      1/16, 2/16, 1/16,
+      2/16, 4/16, 2/16,
+      1/16, 2/16, 1/16
+    ];
+    
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = y * w + x;
+        const a = alpha[idx];
+        
+        // 只对边缘附近像素做柔化（完全透明或完全不透明的内部区域跳过）
+        let isEdge = false;
+        if (a > 0.01 && a < 0.99) {
+          isEdge = true;
+        } else {
+          // 检查 3×3 邻域是否有 alpha 跳变
+          for (let ky = -1; ky <= 1 && !isEdge; ky++) {
+            for (let kx = -1; kx <= 1 && !isEdge; kx++) {
+              const nx = x + kx, ny = y + ky;
+              if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+                const na = alpha[ny * w + nx];
+                if (Math.abs(na - a) > 0.3) isEdge = true;
+              }
+            }
+          }
+        }
+        
+        if (!isEdge) {
+          blurred[idx] = a;
+          continue;
+        }
+        
+        // 3×3 高斯卷积
+        let sum = 0;
+        let ki = 0;
+        for (let ky = -1; ky <= 1; ky++) {
+          for (let kx = -1; kx <= 1; kx++) {
+            const nx = Math.min(w - 1, Math.max(0, x + kx));
+            const ny = Math.min(h - 1, Math.max(0, y + ky));
+            sum += alpha[ny * w + nx] * kernel[ki];
+            ki++;
+          }
+        }
+        blurred[idx] = sum;
+      }
+    }
+    
+    // 写回 alpha 通道，同时确保 RGB 是 premultiplied
+    for (let i = 0; i < w * h; i++) {
+      const newAlpha = Math.round(blurred[i] * 255);
+      const oldAlpha = data[i * 4 + 3];
+      if (newAlpha !== oldAlpha) {
+        // 对 alpha 减小的像素（边缘外侧），RGB 也需要等比缩小
+        if (newAlpha < oldAlpha && oldAlpha > 0) {
+          const ratio = newAlpha / oldAlpha;
+          data[i * 4]     = Math.round(data[i * 4] * ratio);
+          data[i * 4 + 1] = Math.round(data[i * 4 + 1] * ratio);
+          data[i * 4 + 2] = Math.round(data[i * 4 + 2] * ratio);
+        }
+        data[i * 4 + 3] = newAlpha;
+      }
+    }
+    
+    ctx.putImageData(imageData, 0, 0);
+    texture.image = canvas;
+    texture.needsUpdate = true;
+  }
+
   _loadPetalAssets() {
     // 近景花瓣形状（高细分，有弯曲效果）
     const petalShapes = [
@@ -216,6 +312,8 @@ class PetalParticleSystem {
     const total = this.petalTexturePaths.length;
     this.petalTexturePaths.forEach((path) => {
       const texture = this.textureLoader.load(path, () => {
+        // 加载完成后对 alpha 边缘做柔化
+        this._softenTextureAlpha(texture);
         loadedCount++;
         if (loadedCount === total) this._onAllTexturesLoaded();
       }, undefined, () => {
@@ -225,17 +323,25 @@ class PetalParticleSystem {
       if (texture.colorSpace !== undefined) texture.colorSpace = THREE.SRGBColorSpace;
       texture.minFilter = THREE.LinearMipmapLinearFilter;
       texture.magFilter = THREE.LinearFilter;
+      // 各向异性过滤：大幅提升斜角查看时的纹理边缘质量
+      texture.anisotropy = this.renderer ? this.renderer.capabilities.getMaxAnisotropy() : 4;
+      // premultiplied alpha：消除边缘白边/黑边
+      texture.premultiplyAlpha = true;
+      texture.needsUpdate = true;
       // 近景材质（PhysicalMaterial，有光照质感）
+      // 移除 alphaTest 硬裁切，完全依赖 alpha blending 实现柔和边缘
       const mat = new THREE.MeshPhysicalMaterial({
-        map: texture, side: THREE.DoubleSide, transparent: true, alphaTest: 0.2,
+        map: texture, side: THREE.DoubleSide, transparent: true,
         opacity: 0.95, roughness: 0.55, metalness: 0.0, clearcoat: 0.08,
         clearcoatRoughness: 0.4, transmission: 0.05, thickness: 0.35, depthWrite: false,
+        premultipliedAlpha: true,
       });
       this.petalMaterials.push(mat);
-      // 远景材质（BasicMaterial，纯贴图，alphaTest 更高裁掉边缘噪点）
+      // 远景材质（BasicMaterial，纯贴图，同样移除 alphaTest）
       const farMat = new THREE.MeshBasicMaterial({
-        map: texture, side: THREE.DoubleSide, transparent: true, alphaTest: 0.35,
+        map: texture, side: THREE.DoubleSide, transparent: true,
         opacity: 0.9, depthWrite: false,
+        premultipliedAlpha: true,
       });
       this.farPetalMaterials.push(farMat);
     });
@@ -918,7 +1024,7 @@ class PetalParticleSystem {
         this.renderMeshes[rk] = [];
       }
       this.renderer = new THREE.WebGLRenderer({
-        canvas: this.canvas, alpha: true, antialias: true,
+        canvas: this.canvas, alpha: true, antialias: true, premultipliedAlpha: true,
         powerPreference: 'high-performance', preserveDrawingBuffer: false
       });
       this.renderer.setSize(window.innerWidth, window.innerHeight);
