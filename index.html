@@ -3,25 +3,28 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-  <title>花瓣雨 · AR 全息</title>
+  <title>局部地区有花雨</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
   <!-- 启动引导页 -->
   <div id="landing" class="landing">
+    <!-- 视频背景 -->
+    <video class="landing-video" autoplay muted loop playsinline>
+      <source src="https://mat1.gtimg.com/qqcdn/redian/petals_fall_test/start.mp4" type="video/mp4">
+    </video>
+    <!-- 遮罩层 -->
+    <div class="landing-overlay"></div>
+    <!-- 内容层 -->
     <div class="landing-content">
-      <div class="landing-icon">🌸</div>
-      <h1 class="landing-title">花瓣雨</h1>
-      <p class="landing-subtitle">AR 全息花瓣体验</p>
+      <!-- 标题Logo -->
+      <img class="landing-logo" src="logo1.png" alt="局部地区有花雨">
+      <p class="landing-subtitle">AR 沉浸花瓣体验</p>
       <p class="landing-desc">开启摄像头，沉浸在漫天花瓣之中<br>转动设备，感受 360° 环绕花海</p>
-      <button id="btn-start" class="btn-start">
-        <span class="btn-icon">✨</span>
-        <span>开始体验</span>
-      </button>
+      <button id="btn-start" class="btn-start">开始体验</button>
       <p class="landing-tip">需要授权摄像头和陀螺仪权限</p>
       <p id="debug-info" class="debug-info"></p>
     </div>
-    <div class="landing-petals" id="landing-petals"></div>
   </div>
 
   <!-- 主场景 — 单WebGL架构（避免多context被浏览器回收） -->
@@ -48,31 +51,46 @@
 
     <!-- UI -->
     <div id="ui-overlay" class="ui-overlay">
-      <button id="btn-switch-camera" class="ui-btn" title="切换摄像头">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M20 16V7a2 2 0 00-2-2h-3l-2-2H11L9 5H6a2 2 0 00-2 2v9m16 0H4m16 0l-4-4m-12 4l4-4"/>
-        </svg>
-      </button>
-      <button id="btn-toggle-camera" class="ui-btn" title="关闭/开启摄像头">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
-          <circle cx="12" cy="13" r="4"/>
-        </svg>
-      </button>
+      <div class="ui-btn-wrap">
+        <button id="btn-switch-camera" class="ui-btn" title="翻转">
+          <!-- 环绕相机的旋转箭头 -->
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <!-- 相机机身 -->
+            <rect x="5" y="9" width="14" height="10" rx="2"/>
+            <!-- 相机顶部凸起 -->
+            <path d="M9 9V7.5a1 1 0 011-1h4a1 1 0 011 1V9"/>
+            <!-- 镜头 -->
+            <circle cx="12" cy="14" r="2.5"/>
+            <!-- 左上弧形箭头 -->
+            <path d="M3.5 11A9.5 9.5 0 0112 2.5" stroke-width="1.6"/>
+            <path d="M12 2.5l-2.2 1.5M12 2.5l-1.2-2.2" stroke-width="1.6"/>
+            <!-- 右下弧形箭头 -->
+            <path d="M20.5 13A9.5 9.5 0 0112 21.5" stroke-width="1.6"/>
+            <path d="M12 21.5l2.2-1.5M12 21.5l1.2 2.2" stroke-width="1.6"/>
+          </svg>
+        </button>
+        <span class="ui-btn-label">翻转</span>
+      </div>
       <!-- 拍照按钮 -->
-      <button id="btn-photo" class="ui-btn ui-btn-capture" title="拍照">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/>
-          <circle cx="12" cy="12" r="4" fill="currentColor"/>
-        </svg>
-      </button>
+      <div class="ui-btn-wrap">
+        <button id="btn-photo" class="ui-btn ui-btn-capture" title="拍照">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <circle cx="12" cy="12" r="4" fill="currentColor"/>
+          </svg>
+        </button>
+        <span class="ui-btn-label">拍照</span>
+      </div>
       <!-- 录像按钮 -->
-      <button id="btn-record" class="ui-btn ui-btn-capture" title="录像">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/>
-          <circle cx="12" cy="12" r="5" fill="#e53935" class="record-dot"/>
-        </svg>
-      </button>
+      <div class="ui-btn-wrap">
+        <button id="btn-record" class="ui-btn ui-btn-capture" title="录像">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+            <circle cx="12" cy="12" r="5" fill="#e53935" class="record-dot"/>
+          </svg>
+        </button>
+        <span class="ui-btn-label">录像</span>
+      </div>
       <div id="petal-count-control" class="petal-control">
         <label>花瓣密度</label>
         <input type="range" id="petal-density" min="200" max="5000" value="3000" step="50">

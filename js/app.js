@@ -10,7 +10,6 @@
   'use strict';
 
   const $landing = document.getElementById('landing');
-  const $landingPetals = document.getElementById('landing-petals');
   const $scene = document.getElementById('scene');
   const $btnStart = document.getElementById('btn-start');
   const $btnSwitchCamera = document.getElementById('btn-switch-camera');
@@ -31,23 +30,6 @@
 
   function debug(msg) {
     console.log(msg);
-    if ($debug) $debug.textContent += msg + '\n';
-  }
-
-  // ============================================
-  // Landing 花瓣装饰
-  // ============================================
-  function createLandingPetals() {
-    const count = window.innerWidth > 768 ? 25 : 15;
-    for (let i = 0; i < count; i++) {
-      const petal = document.createElement('div');
-      petal.className = 'landing-petal';
-      petal.style.left = Math.random() * 100 + '%';
-      petal.style.animationDuration = 4 + Math.random() * 6 + 's';
-      petal.style.animationDelay = Math.random() * 8 + 's';
-      petal.style.transform = `scale(${0.5 + Math.random() * 1.0})`;
-      $landingPetals.appendChild(petal);
-    }
   }
 
   // ============================================
@@ -181,11 +163,8 @@
 
       if (!cameraModule.hasCamera) {
         $btnSwitchCamera.classList.add('hidden');
-        $btnToggleCamera.classList.add('hidden');
       } else {
-        // 有摄像头就显示切换和开关按钮
         $btnSwitchCamera.classList.remove('hidden');
-        $btnToggleCamera.classList.remove('hidden');
       }
 
       // === 5. 启动动画 ===
@@ -224,7 +203,7 @@
         segmentation.update();
       }
 
-      if (particles.fps > 0) {
+      if (particles.fps > 0 && $fpsCounter.style.display !== 'none') {
         $fpsCounter.textContent = `FPS:${particles.fps}`;
       }
 
@@ -257,22 +236,6 @@
       e.preventDefault();
       if (capture && capture.isRecording) return; // 录像中禁用
       if (cameraModule) cameraModule.switchCamera();
-    });
-
-    // toggleCamera 防抖：touchend + click 可能导致双重触发
-    let toggleCameraTimer = 0;
-    const doToggleCamera = () => {
-      const now = Date.now();
-      if (now - toggleCameraTimer < 500) return;
-      toggleCameraTimer = now;
-      if (capture && capture.isRecording) return; // 录像中禁用
-      if (cameraModule) cameraModule.toggleCamera();
-    };
-
-    $btnToggleCamera.addEventListener('click', doToggleCamera);
-    $btnToggleCamera.addEventListener('touchend', (e) => {
-      e.preventDefault();
-      doToggleCamera();
     });
 
     $petalDensity.addEventListener('input', (e) => {
@@ -334,7 +297,6 @@
   }
 
   function init() {
-    createLandingPetals();
     bindEvents();
 
     // 显示协议提示（帮助用户理解为什么权限不弹）

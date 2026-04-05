@@ -489,40 +489,15 @@ class CaptureManager {
 
     const filename = 'petals_' + this._timestamp() + '.png';
 
-    // 导出 blob
+    // 导出 blob → 弹出预览界面
     try {
       this.compositeCanvas.toBlob((blob) => {
         if (!blob) {
           this._showToast('拍照失败: 图片生成为空');
           return;
         }
-
-        // 策略1：Web Share API（iOS Safari / Android Chrome 均支持，可直接保存到相册）
-        if (navigator.canShare && navigator.share) {
-          try {
-            const file = new File([blob], filename, { type: 'image/png' });
-            if (navigator.canShare({ files: [file] })) {
-              navigator.share({
-                files: [file],
-                title: '花瓣雨',
-              }).then(() => {
-                this._showToast('已分享/保存');
-              }).catch((err) => {
-                // 用户取消分享不算错误
-                if (err.name !== 'AbortError') {
-                  console.warn('分享失败:', err);
-                  this._fallbackSavePhoto(blob, filename);
-                }
-              });
-              return;
-            }
-          } catch (shareErr) {
-            console.warn('Web Share API 异常:', shareErr);
-          }
-        }
-
-        // 策略2：降级方案
-        this._fallbackSavePhoto(blob, filename);
+        // 拍照后先弹预览，用户再选择保存/分享/关闭
+        this._showPhotoPreview(blob, filename);
       }, 'image/png');
     } catch (err) {
       console.error('toBlob 调用失败:', err);
@@ -531,75 +506,166 @@ class CaptureManager {
   }
 
   /**
-   * 降级保存方案：弹出图片预览，用户长按保存
+   * 拍照预览：快门闪光 → 带圆角边框的近全屏预览，底部保存/重拍按钮
+   * 用户必须点击保存或重拍才会关闭预览
    */
-  _fallbackSavePhoto(blob, filename) {
-    const url = URL.createObjectURL(blob);
+  _showPhotoPreview(blob, filename) {
+    const imgUrl = URL.createObjectURL(blob);
 
-    // 尝试 <a> 下载（PC 浏览器有效）
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
+    // 清理之前的预览
+    const oldOverlay = document.getElementById('photo-preview-overlay');
+    if (oldOverlay) oldOverlay.remove();
 
-    // 检测是否为移动端（移动端 <a download> 大多不生效）
-    const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+    const overlay = document.createElement('div');
+    overlay.id = 'photo-preview-overlay';
+    overlay.className = 'photo-preview-overlay';
+    overlay.innerHTML = `
+      <div class="photo-preview-frame">
+        <img class="photo-preview-img" />
+      </div>
+      <div class="photo-preview-actions">
+        <button class="photo-preview-btn" id="photo-preview-retake">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+          <span>重拍</span>
+        </button>
+        <button class="photo-preview-btn photo-preview-btn-primary" id="photo-preview-save">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>保存</span>
+        </button>
+      </div>
+    `;
+    document.body.appendChild(overlay);
 
-    if (!isMobile) {
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 5000);
-      this._showToast('已保存');
-      return;
-    }
+    const img = overlay.querySelector('.photo-preview-img');
+    img.src = imgUrl;
 
-    // 移动端：弹出图片预览弹窗，让用户长按保存
-    this._showImagePreview(url);
+    // 入场动效：先从略大缩放到正常大小（模拟快门捕获感）
+    requestAnimationFrame(() => {
+      overlay.classList.add('show');
+    });
+
+    // 关闭预览
+    const cleanup = () => {
+      overlay.classList.add('photo-preview-exit');
+      setTimeout(() => {
+        overlay.remove();
+        URL.revokeObjectURL(imgUrl);
+      }, 300);
+    };
+
+    // 重拍
+    overlay.querySelector('#photo-preview-retake').addEventListener('click', cleanup);
+
+    // 保存：先调保存，完成后再关闭预览
+    overlay.querySelector('#photo-preview-save').addEventListener('click', () => {
+      this._savePhoto(blob, filename, cleanup);
+    });
   }
 
   /**
-   * 图片预览弹窗（移动端长按保存）
+   * 检测是否在微信浏览器中
    */
-  _showImagePreview(imgUrl) {
-    let overlay = document.getElementById('photo-preview-overlay');
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.id = 'photo-preview-overlay';
-      overlay.className = 'video-preview-overlay';
-      overlay.innerHTML = `
-        <div class="video-preview-content">
-          <div class="video-preview-header">
-            <span>长按图片保存到相册</span>
-            <button class="video-preview-close" id="photo-preview-close">&times;</button>
-          </div>
-          <img id="photo-preview-img" style="width:100%;display:block;background:#000;" />
-          <p class="video-preview-tip">长按图片 → 保存到手机相册</p>
-        </div>
-      `;
-      document.body.appendChild(overlay);
+  _isWechat() {
+    return /MicroMessenger/i.test(navigator.userAgent);
+  }
+
+  /**
+   * 保存照片/视频（统一逻辑）
+   * - 微信环境：使用微信 JS-SDK 保存
+   * - 非微信环境：优先 navigator.share()（系统分享面板，可保存到相册），降级 <a download>
+   * @param {Function} onDone - 保存完成后的回调（用于关闭预览）
+   */
+  _saveMedia(blob, filename, onDone) {
+    const done = () => { if (onDone) onDone(); };
+
+    // 微信环境：走微信 JS-SDK
+    if (this._isWechat()) {
+      this._saveViaWechat(blob, filename);
+      done();
+      return;
     }
 
-    const img = document.getElementById('photo-preview-img');
-    const closeBtn = document.getElementById('photo-preview-close');
+    // 非微信：优先 navigator.share()
+    const mimeType = blob.type || (filename.endsWith('.png') ? 'image/png' : 'video/mp4');
+    const file = new File([blob], filename, { type: mimeType });
 
-    img.src = imgUrl;
-    overlay.classList.add('show');
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file] }).then(() => {
+        this._showToast('已保存');
+        done();
+      }).catch((err) => {
+        if (err.name !== 'AbortError') {
+          console.warn('分享面板失败，降级下载:', err);
+          this._downloadFile(blob, filename);
+        }
+        // 无论取消还是失败，都关闭预览
+        done();
+      });
+    } else {
+      // 不支持 share，降级 <a download>
+      this._downloadFile(blob, filename);
+      done();
+    }
+  }
 
-    const closeHandler = () => {
-      overlay.classList.remove('show');
-      img.src = '';
-      URL.revokeObjectURL(imgUrl);
-      closeBtn.removeEventListener('click', closeHandler);
-      overlay.removeEventListener('click', overlayClickHandler);
-    };
-    closeBtn.addEventListener('click', closeHandler);
+  /**
+   * 降级下载方式（<a download>）
+   */
+  _downloadFile(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    this._showToast('已保存');
+  }
 
-    const overlayClickHandler = (e) => {
-      if (e.target === overlay) closeHandler();
-    };
-    overlay.addEventListener('click', overlayClickHandler);
+  /**
+   * 微信环境下保存到相册
+   * 将 blob 转为临时 URL，通过微信 JS-SDK 下载并保存
+   */
+  _saveViaWechat(blob, filename) {
+    const isImage = blob.type && blob.type.startsWith('image/');
+    const url = URL.createObjectURL(blob);
 
-    this._showToast('长按图片保存');
+    if (isImage) {
+      // 图片：将 blob 转为 base64，使用微信 previewImage 让用户长按保存
+      // 或者使用 downloadImage API
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = reader.result;
+        // 微信 JS-SDK previewImage：用户可以在预览中长按保存到相册
+        if (window.wx && window.wx.previewImage) {
+          window.wx.previewImage({
+            current: base64,
+            urls: [base64],
+          });
+          this._showToast('长按图片可保存到相册');
+        } else {
+          // wx 未注入，降级下载
+          this._downloadFile(blob, filename);
+        }
+        URL.revokeObjectURL(url);
+      };
+      reader.onerror = () => {
+        URL.revokeObjectURL(url);
+        this._downloadFile(blob, filename);
+      };
+      reader.readAsDataURL(blob);
+    } else {
+      // 视频：微信 JS-SDK 没有直接保存视频到相册的 API
+      // 降级到 <a download>
+      URL.revokeObjectURL(url);
+      this._downloadFile(blob, filename);
+    }
+  }
+
+  _savePhoto(blob, filename, onDone) {
+    this._saveMedia(blob, filename, onDone);
   }
 
   // ============================================
@@ -729,107 +795,65 @@ class CaptureManager {
     const ext = mimeType.includes('webm') ? 'webm' : 'mp4';
     const filename = 'petals_' + this._timestamp() + '.' + ext;
 
-    // 策略1：Web Share API（iOS Safari / Android Chrome 均支持，可直接保存到相册）
-    if (navigator.canShare && navigator.share) {
-      try {
-        const file = new File([blob], filename, { type: mimeType });
-        if (navigator.canShare({ files: [file] })) {
-          navigator.share({
-            files: [file],
-            title: '花瓣雨',
-          }).then(() => {
-            this._showToast('已分享/保存');
-          }).catch((err) => {
-            if (err.name !== 'AbortError') {
-              console.warn('视频分享失败:', err);
-              this._fallbackSaveVideo(blob, filename);
-            }
-          });
-          return;
-        }
-      } catch (shareErr) {
-        console.warn('Web Share API 异常:', shareErr);
-      }
-    }
-
-    // 策略2：降级方案
-    this._fallbackSaveVideo(blob, filename);
+    this._showVideoPreviewNew(blob, filename);
   }
 
   /**
-   * 降级保存视频：PC 用 <a download>，移动端弹出视频预览弹窗
+   * 录像预览：近全屏带圆角边框，视频可播放，底部保存/重录按钮
    */
-  _fallbackSaveVideo(blob, filename) {
-    const url = URL.createObjectURL(blob);
-    const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+  _showVideoPreviewNew(blob, filename) {
+    const videoUrl = URL.createObjectURL(blob);
 
-    if (!isMobile) {
-      // PC 浏览器：<a download> 有效
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
-      this._showToast('视频已保存');
-    } else {
-      // 移动端：弹出视频预览弹窗，用户长按保存
-      this._showVideoPreview(url, blob);
-    }
-  }
+    // 清理之前的预览
+    const oldOverlay = document.getElementById('video-preview-overlay-new');
+    if (oldOverlay) oldOverlay.remove();
 
-  _isWeChat() {
-    return /MicroMessenger/i.test(navigator.userAgent);
-  }
+    const overlay = document.createElement('div');
+    overlay.id = 'video-preview-overlay-new';
+    overlay.className = 'photo-preview-overlay';
+    overlay.innerHTML = `
+      <div class="photo-preview-frame">
+        <video class="video-preview-player-new" autoplay loop playsinline webkit-playsinline></video>
+      </div>
+      <div class="photo-preview-actions">
+        <button class="photo-preview-btn" id="video-preview-discard">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          <span>丢弃</span>
+        </button>
+        <button class="photo-preview-btn photo-preview-btn-primary" id="video-preview-save">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>保存</span>
+        </button>
+      </div>
+    `;
+    document.body.appendChild(overlay);
 
-  _showVideoPreview(url, blob) {
-    // 获取或创建预览弹窗
-    let overlay = document.getElementById('video-preview-overlay');
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.id = 'video-preview-overlay';
-      overlay.className = 'video-preview-overlay';
-      overlay.innerHTML = `
-        <div class="video-preview-content">
-          <div class="video-preview-header">
-            <span>视频预览</span>
-            <button class="video-preview-close" id="video-preview-close">&times;</button>
-          </div>
-          <video id="video-preview-player" class="video-preview-player" controls playsinline webkit-playsinline></video>
-          <p class="video-preview-tip">长按视频可保存到手机相册</p>
-        </div>
-      `;
-      document.body.appendChild(overlay);
-    }
+    const video = overlay.querySelector('.video-preview-player-new');
+    video.src = videoUrl;
+    video.play().catch(() => {});
 
-    const player = document.getElementById('video-preview-player');
-    const closeBtn = document.getElementById('video-preview-close');
+    // 入场动效
+    requestAnimationFrame(() => {
+      overlay.classList.add('show');
+    });
 
-    player.src = url;
-    overlay.classList.add('show');
-
-    // 尝试自动播放
-    player.play().catch(() => {});
-
-    // 关闭按钮
-    const closeHandler = () => {
-      overlay.classList.remove('show');
-      player.pause();
-      player.src = '';
-      URL.revokeObjectURL(url);
-      closeBtn.removeEventListener('click', closeHandler);
-      overlayClickHandler && overlay.removeEventListener('click', overlayClickHandler);
+    // 关闭预览
+    const cleanup = () => {
+      overlay.classList.add('photo-preview-exit');
+      video.pause();
+      setTimeout(() => {
+        overlay.remove();
+        URL.revokeObjectURL(videoUrl);
+      }, 300);
     };
-    closeBtn.addEventListener('click', closeHandler);
 
-    // 点击遮罩关闭
-    const overlayClickHandler = (e) => {
-      if (e.target === overlay) closeHandler();
-    };
-    overlay.addEventListener('click', overlayClickHandler);
+    // 丢弃
+    overlay.querySelector('#video-preview-discard').addEventListener('click', cleanup);
 
-    this._showToast('长按视频可保存');
+    // 保存：先调保存，完成后再关闭预览
+    overlay.querySelector('#video-preview-save').addEventListener('click', () => {
+      this._saveMedia(blob, filename, cleanup);
+    });
   }
 
   _resetRecordingUI() {
