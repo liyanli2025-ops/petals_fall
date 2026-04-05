@@ -291,12 +291,6 @@
       if (segmentation) {
         segmentation.update();
       }
-
-      if (particles.fps > 0 && $fpsCounter.style.display !== 'none') {
-        $fpsCounter.textContent = `FPS:${particles.fps}`;
-      }
-
-      // 调试面板已关闭
     }
     loop();
   }
@@ -355,34 +349,9 @@
       e.preventDefault();
     }, { passive: false });
 
-    // 三击 FPS + 调试面板
+    // 三击 FPS + 调试面板 — 完全禁用（生产环境不需要）
     $fpsCounter.style.display = 'none';
     if ($debugPanel) $debugPanel.style.display = 'none';
-    let tapCount = 0;
-    let tapTimer = null;
-    let usedTouch = false;
-    const handleTripleTap = () => {
-      tapCount++;
-      if (tapTimer) clearTimeout(tapTimer);
-      tapTimer = setTimeout(() => {
-        if (tapCount >= 3) {
-          const show = $fpsCounter.style.display === 'none' ? 'block' : 'none';
-          $fpsCounter.style.display = show;
-          if ($debugPanel) $debugPanel.style.display = show;
-        }
-        tapCount = 0;
-      }, 500);
-    };
-    // 手机上 touchstart 的 preventDefault 会阻止 click，用 touchend 代替
-    document.addEventListener('touchend', () => {
-      usedTouch = true;
-      handleTripleTap();
-    });
-    // 桌面端用 click，避免与 touch 重复计数
-    document.addEventListener('click', () => {
-      if (!usedTouch) handleTripleTap();
-      usedTouch = false;
-    });
   }
 
   function init() {

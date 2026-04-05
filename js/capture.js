@@ -423,11 +423,12 @@ class CaptureManager {
       this._updateCanvasSize();
     }
 
-    // === 拍照前临时提升 WebGL DPR 到设备原生分辨率 ===
-    // 拍照是单帧操作，不需要持续高帧率，可以承受更高 DPR
+    // === 拍照前临时提升 WebGL DPR（仅 PC 端）===
+    // 移动端保持 2x DPR，不做提升（3x 导致合成慢 + 图片大 + 保存卡）
     let dprRestored = false;
     const ps = this.particleSystem;
-    if (ps && ps.renderer && !this.isRecording) {
+    const isMobileShot = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+    if (ps && ps.renderer && !this.isRecording && !isMobileShot) {
       const nativeDPR = Math.min(window.devicePixelRatio || 1, 3);
       const currentDPR = ps.renderer.getPixelRatio();
       if (nativeDPR > currentDPR) {
@@ -447,9 +448,8 @@ class CaptureManager {
     }
 
     try {
-      // 预缓存花瓣层历史帧，确保运动模糊有数据
-      // 录像中已经有持续的 composite loop 在积累历史帧，无需额外预缓存
-      if (!this.isRecording) {
+      // 预缓存花瓣层历史帧（仅 PC 端，移动端跳过以加速）
+      if (!this.isRecording && !isMobileShot) {
         this._preloadMotionBlurHistory();
       }
       this._composite();
@@ -487,7 +487,10 @@ class CaptureManager {
       setTimeout(() => this.$flash.classList.remove('active'), 300);
     }
 
-    const filename = 'petals_' + this._timestamp() + '.png';
+    // 移动端用 JPEG（体积小、导出快），PC 端用 PNG（无损）
+    const imgFormat = isMobileShot ? 'image/jpeg' : 'image/png';
+    const imgExt = isMobileShot ? '.jpg' : '.png';
+    const filename = 'petals_' + this._timestamp() + imgExt;
 
     // 导出 blob → 弹出预览界面
     try {
@@ -498,7 +501,7 @@ class CaptureManager {
         }
         // 拍照后先弹预览，用户再选择保存/分享/关闭
         this._showPhotoPreview(blob, filename);
-      }, 'image/png');
+      }, imgFormat, isMobileShot ? 0.92 : undefined);
     } catch (err) {
       console.error('toBlob 调用失败:', err);
       this._showToast('拍照失败');
@@ -570,98 +573,123 @@ class CaptureManager {
   }
 
   /**
-   * 保存照片/视频（统一逻辑）
-   * - 微信环境：使用微信 JS-SDK 保存
-   * - 非微信环境：优先 navigator.share()（系统分享面板，可保存到相册），降级 <a download>
-   * @param {Function} onDone - 保存完成后的回调（用于关闭预览）
+   * 保存照片/视频 — 统一优先级链（所有环境一致）
+   * 
+   * 优先级：
+   *   1. navigator.share (files) → 保存到相册（最优）
+   *   2. <a download> → 保存到手机文件（次优）
+   *   3. 弹预览 + 操作指引 → 兜底
+   * 
+   * 注意：微信个人版不支持 share 也不支持 download，直接走兜底
    */
   _saveMedia(blob, filename, onDone) {
     const done = () => { if (onDone) onDone(); };
+    const mimeType = blob.type || (filename.endsWith('.png') ? 'image/png' : 'video/mp4');
+    const isImage = mimeType.startsWith('image/');
+    const isWxPersonal = this._isWechat() && !/wxwork/i.test(navigator.userAgent);
 
-    // 微信环境：走微信 JS-SDK
-    if (this._isWechat()) {
-      this._saveViaWechat(blob, filename);
-      done();
+    // === 优先级 1：navigator.share → 保存到相册 ===
+    // 所有环境都尝试（微信个人版也试一下，万一以后支持了）
+    try {
+      const file = new File([blob], filename, { type: mimeType });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        done();
+        navigator.share({ files: [file] }).then(() => {
+          this._showToast('已保存');
+        }).catch((err) => {
+          if (err.name !== 'AbortError') {
+            // share 失败，走后续降级
+            this._fallbackSave(blob, filename, isImage, isWxPersonal);
+          }
+        });
+        return;
+      }
+    } catch (e) { /* 不支持，继续降级 */ }
+
+    // share 不可用，走降级
+    this._fallbackSave(blob, filename, isImage, isWxPersonal);
+    done();
+  }
+
+  /**
+   * share 不可用时的降级保存
+   */
+  _fallbackSave(blob, filename, isImage, isWxPersonal) {
+    // === 优先级 2：<a download> → 保存到手机 ===
+    // 微信个人版的 <a download> 会跳到空白页，不可用，跳过
+    if (!isWxPersonal) {
+      // 尝试 download，大部分浏览器（PC + Android Chrome/Firefox + 企微等）有效
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      this._showToast('已保存到文件');
       return;
     }
 
-    // 非微信：优先 navigator.share()
-    const mimeType = blob.type || (filename.endsWith('.png') ? 'image/png' : 'video/mp4');
-    const file = new File([blob], filename, { type: mimeType });
+    // === 优先级 3：弹预览 + 指引（仅微信个人版会走到这里）===
+    this._showSavePreview(blob, isImage);
+  }
 
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      navigator.share({ files: [file] }).then(() => {
-        this._showToast('已保存');
-        done();
-      }).catch((err) => {
-        if (err.name !== 'AbortError') {
-          console.warn('分享面板失败，降级下载:', err);
-          this._downloadFile(blob, filename);
-        }
-        // 无论取消还是失败，都关闭预览
-        done();
-      });
-    } else {
-      // 不支持 share，降级 <a download>
-      this._downloadFile(blob, filename);
-      done();
-    }
+  _isMobileDevice() {
+    return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   }
 
   /**
-   * 降级下载方式（<a download>）
+   * 弹出保存预览（微信个人版兜底）
    */
-  _downloadFile(blob, filename) {
+  _showSavePreview(blob, isImage) {
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
-    this._showToast('已保存');
-  }
+    const oldOverlay = document.getElementById('save-preview-overlay');
+    if (oldOverlay) oldOverlay.remove();
 
-  /**
-   * 微信环境下保存到相册
-   * 将 blob 转为临时 URL，通过微信 JS-SDK 下载并保存
-   */
-  _saveViaWechat(blob, filename) {
-    const isImage = blob.type && blob.type.startsWith('image/');
-    const url = URL.createObjectURL(blob);
+    const overlay = document.createElement('div');
+    overlay.id = 'save-preview-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.95);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;';
 
     if (isImage) {
-      // 图片：将 blob 转为 base64，使用微信 previewImage 让用户长按保存
-      // 或者使用 downloadImage API
-      const reader = new FileReader();
-      reader.onload = () => {
-        const base64 = reader.result;
-        // 微信 JS-SDK previewImage：用户可以在预览中长按保存到相册
-        if (window.wx && window.wx.previewImage) {
-          window.wx.previewImage({
-            current: base64,
-            urls: [base64],
-          });
-          this._showToast('长按图片可保存到相册');
-        } else {
-          // wx 未注入，降级下载
-          this._downloadFile(blob, filename);
-        }
-        URL.revokeObjectURL(url);
-      };
-      reader.onerror = () => {
-        URL.revokeObjectURL(url);
-        this._downloadFile(blob, filename);
-      };
-      reader.readAsDataURL(blob);
+      // 微信个人版：图片支持长按保存
+      overlay.innerHTML = `
+        <p style="color:#fff;font-size:14px;margin-bottom:16px;text-align:center;line-height:1.7;opacity:0.85;">长按图片保存到相册</p>
+        <img style="max-width:92%;max-height:70vh;border-radius:8px;object-fit:contain;" />
+        <button class="save-preview-close" style="margin-top:24px;padding:12px 48px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:25px;font-size:15px;">关闭</button>
+      `;
+      document.body.appendChild(overlay);
+      overlay.querySelector('img').src = url;
     } else {
-      // 视频：微信 JS-SDK 没有直接保存视频到相册的 API
-      // 降级到 <a download>
-      URL.revokeObjectURL(url);
-      this._downloadFile(blob, filename);
+      // 微信个人版：视频无法直接保存
+      overlay.innerHTML = `
+        <video style="max-width:92%;max-height:60vh;border-radius:8px;background:#000;" autoplay loop playsinline webkit-playsinline controls></video>
+        <p style="color:rgba(255,255,255,0.75);font-size:13px;margin-top:16px;text-align:center;line-height:1.8;">
+          微信内暂不支持直接保存视频<br>
+          请点击右上角 <b style="color:#fff">···</b> → <b style="color:#fff">用浏览器打开</b><br>
+          在浏览器中可直接保存
+        </p>
+        <button class="save-preview-close" style="margin-top:20px;padding:12px 48px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:25px;font-size:15px;">关闭</button>
+      `;
+      document.body.appendChild(overlay);
+      const video = overlay.querySelector('video');
+      video.src = url;
+      video.play().catch(() => {});
     }
+
+    const cleanup = () => {
+      if (!isImage) {
+        const v = overlay.querySelector('video');
+        if (v) v.pause();
+      }
+      overlay.remove();
+      URL.revokeObjectURL(url);
+    };
+    overlay.querySelector('.save-preview-close').addEventListener('click', cleanup);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) cleanup();
+    });
   }
 
   _savePhoto(blob, filename, onDone) {

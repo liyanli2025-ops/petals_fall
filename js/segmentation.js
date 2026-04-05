@@ -1,12 +1,12 @@
 /**
- * 人体分割模块 v2
+ * 人体分割模块 v3
  * 使用 MediaPipe SelfieSegmentation 从摄像头画面中提取人物轮廓
  * 将人物区域绘制到独立 canvas 上，实现人物遮挡花瓣效果
  * 
- * v2 修复：
- *   - update() 改为非阻塞（fire-and-forget），不再 await send()
- *   - 添加 processing 锁防止重复发送导致堆积
- *   - _drawMask 每帧从 video 实时取画面，不缓存旧帧
+ * v3 修复：
+ *   - 彻底消除 PC 端残影：非分割帧不再用旧蒙版重绘
+ *   - 蒙版 RGB 亮度阈值二值化，消除边缘半透明残留
+ *   - update() 非阻塞（fire-and-forget），processing 锁防重复
  */
 class PersonSegmentation {
   constructor() {
@@ -23,6 +23,10 @@ class PersonSegmentation {
     
     // 碰撞检测器引用（外部注入）
     this.bodyCollision = null;
+    
+    // 蒙版处理用的中间 canvas
+    this._maskCanvas = null;
+    this._maskCtx = null;
   }
 
   async init() {
@@ -34,15 +38,11 @@ class PersonSegmentation {
     try {
       this.segmenter = new SelfieSegmentation({
         locateFile: (file) => {
-          // 优先使用 CDN 绝对路径（部署后相对路径会 404）
-          // 检测是否在 CDN 域名下（部署环境）
           const href = window.location.href;
           if (href.includes('qq.com') || href.includes('gtimg.com')) {
-            // 部署环境：使用 CDN 路径
             const cdnBase = 'https://mat1.gtimg.com/qqcdn/redian/petals_fall_test/libs/mediapipe/';
             return cdnBase + file;
           }
-          // 本地开发环境：使用相对路径
           return `libs/mediapipe/${file}`;
         }
       });
@@ -53,7 +53,7 @@ class PersonSegmentation {
       });
 
       this.segmenter.onResults((results) => {
-        this.processing = false; // 释放锁
+        this.processing = false;
         this._onSegmentationResult(results);
       });
 
@@ -62,7 +62,7 @@ class PersonSegmentation {
 
       this.ready = true;
       const isMobile = /Mobi|Android|iPhone/i.test(navigator.userAgent);
-      this.frameSkip = isMobile ? 3 : 2; // 降低分割频率，优先保证花瓣流畅
+      this.frameSkip = isMobile ? 3 : 1;
 
       console.log('人体分割模块初始化成功');
       return true;
@@ -74,13 +74,12 @@ class PersonSegmentation {
 
   _resize() {
     // canvas 的内部分辨率在 _drawMask 中动态设为视频原始分辨率
-    // CSS object-fit: cover 负责显示裁剪
-    // 这里不再需要设置 canvas 尺寸
   }
 
   /**
-   * 每帧调用 — 非阻塞！
-   * 不 await send()，而是 fire-and-forget，结果通过 onResults 回调处理
+   * 每帧调用 — 非阻塞
+   * 关键改动：非分割帧 **不重绘蒙版**，只在收到新结果时绘制
+   * 这样避免旧蒙版+新视频帧错配导致的残影
    */
   update() {
     if (!this.ready || !this.running) return;
@@ -88,19 +87,17 @@ class PersonSegmentation {
 
     this.frameCount++;
 
-    // 非分割帧：用上次遮罩 + 当前视频帧重绘（保持同步）
+    // 非分割帧：不做任何事（保持上次绘制的结果）
+    // 旧版在此处用 lastMask 重绘，会导致旧蒙版+新视频帧错配 → 残影
     if (this.frameCount % this.frameSkip !== 0) {
-      if (this.lastMask) this._drawMask(this.lastMask);
       return;
     }
 
-    // 上一次 send 还没返回结果，跳过，避免堆积
+    // 上一次 send 还没返回结果，跳过
     if (this.processing) {
-      if (this.lastMask) this._drawMask(this.lastMask);
       return;
     }
 
-    // 发射 send，不等待结果
     this.processing = true;
     this.segmenter.send({ image: this.video }).catch(() => {
       this.processing = false;
@@ -112,7 +109,6 @@ class PersonSegmentation {
     this.lastMask = results.segmentationMask;
     this._drawMask(results.segmentationMask);
     
-    // 更新碰撞检测器（传入视频尺寸用于 cover 坐标映射）
     if (this.bodyCollision) {
       const vw = this.video.videoWidth || 0;
       const vh = this.video.videoHeight || 0;
@@ -123,43 +119,65 @@ class PersonSegmentation {
   /**
    * 将人物区域绘制为遮挡层
    * 
-   * 关键改进：蒙版和视频都全拉伸到 canvas（不做 JS 层面的 cover 裁剪）
-   * canvas 通过 CSS object-fit: cover 实现和 video 标签一致的裁剪对齐
-   * 
-   * 这样做的好处：
-   *   1. 蒙版尺寸（如 256×256）和视频尺寸（如 1280×720）不同也没关系
-   *   2. 碰撞检测器也可以直接全拉伸采样蒙版，不需要 crop 参数
-   *   3. CSS object-fit: cover 会自动让 canvas 和 video 对齐
+   * 蒙版处理流程：
+   *   1. 将蒙版绘制到低分辨率中间 canvas
+   *   2. 对 RGB 亮度做阈值二值化（消除边缘半透明 → 消除残影）
+   *   3. 将处理后的蒙版拉伸绘制到主 canvas
+   *   4. source-in 模式用视频帧填充人物区域
    */
   _drawMask(mask) {
     const ctx = this.ctx;
     const vw = this.video.videoWidth || this.canvas.width;
     const vh = this.video.videoHeight || this.canvas.height;
 
-    // canvas 内部分辨率设为视频原始分辨率
-    // 这样全拉伸绘制后，CSS object-fit: cover 的裁剪效果和 video 标签完全一致
     if (this.canvas.width !== vw || this.canvas.height !== vh) {
       this.canvas.width = vw;
       this.canvas.height = vh;
     }
 
-    // 彻底清空
     ctx.clearRect(0, 0, vw, vh);
 
-    // 确保 video 有画面
     if (this.video.readyState < 2) return;
 
-    // 第一步：画蒙版（白色=人物，黑色=背景）
-    // 全拉伸 — 不做 cover 裁剪
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.drawImage(mask, 0, 0, vw, vh);
+    // 中间 canvas 做蒙版阈值处理
+    if (!this._maskCanvas) {
+      this._maskCanvas = document.createElement('canvas');
+      this._maskCtx = this._maskCanvas.getContext('2d', { willReadFrequently: true });
+    }
+    const mw = Math.min(vw, 480);
+    const mh = Math.min(vh, Math.round(480 * vh / vw));
+    if (this._maskCanvas.width !== mw || this._maskCanvas.height !== mh) {
+      this._maskCanvas.width = mw;
+      this._maskCanvas.height = mh;
+    }
+    const mctx = this._maskCtx;
+    mctx.clearRect(0, 0, mw, mh);
+    mctx.drawImage(mask, 0, 0, mw, mh);
 
-    // 第二步：source-in 模式，用视频帧填充人物区域
-    // 视频也全拉伸（视频尺寸 == canvas 尺寸，所以 1:1 映射）
+    // 阈值二值化：基于 RGB 亮度（MediaPipe 蒙版用 RGB 表示置信度）
+    // 亮度 < 阈值的边缘像素全部清零，消除半透明残留
+    const imageData = mctx.getImageData(0, 0, mw, mh);
+    const data = imageData.data;
+    const threshold = 128;
+    for (let i = 0; i < data.length; i += 4) {
+      const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
+      if (brightness < threshold) {
+        data[i] = 0;     // R
+        data[i + 1] = 0; // G
+        data[i + 2] = 0; // B
+        data[i + 3] = 0; // A
+      }
+    }
+    mctx.putImageData(imageData, 0, 0);
+
+    // 将处理后的蒙版绘制到主 canvas
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.drawImage(this._maskCanvas, 0, 0, vw, vh);
+
+    // source-in 模式，用视频帧填充人物区域
     ctx.globalCompositeOperation = 'source-in';
     ctx.drawImage(this.video, 0, 0, vw, vh);
 
-    // 重置合成模式
     ctx.globalCompositeOperation = 'source-over';
   }
 
@@ -169,7 +187,6 @@ class PersonSegmentation {
 
   stop() {
     this.running = false;
-    // 清空 canvas，防止最后一帧残留
     if (this.ctx) {
       this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     }
