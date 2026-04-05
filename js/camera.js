@@ -36,9 +36,27 @@ class CameraManager {
     // 前置摄像头做镜像翻转
     this._updateMirror();
 
-    this.video.onloadedmetadata = () => {
-      this.video.play().catch(() => {});
+    // 微信内置浏览器中 video.play() 经常静默失败或 loadedmetadata 事件错过
+    // 多时机多次尝试 play，确保视频不会卡在黑屏
+    const tryPlay = () => {
+      if (this.video.paused && this.video.srcObject) {
+        this.video.play().catch(() => {});
+      }
     };
+
+    // 1. 立即尝试
+    tryPlay();
+
+    // 2. loadedmetadata 时
+    this.video.onloadedmetadata = tryPlay;
+
+    // 3. canplay 时
+    this.video.addEventListener('canplay', tryPlay, { once: true });
+
+    // 4. 延迟重试（微信有时候需要等一会儿 stream 才稳定）
+    setTimeout(tryPlay, 300);
+    setTimeout(tryPlay, 800);
+    setTimeout(tryPlay, 1500);
   }
 
   /**
@@ -96,9 +114,26 @@ class CameraManager {
     this._updateMirror();
 
     return new Promise((resolve) => {
-      this.video.onloadedmetadata = () => {
-        this.video.play().then(() => resolve(true)).catch(() => resolve(true));
+      let resolved = false;
+      const done = () => {
+        if (!resolved) { resolved = true; resolve(true); }
       };
+
+      const tryPlay = () => {
+        if (this.video.paused && this.video.srcObject) {
+          this.video.play().then(done).catch(done);
+        } else {
+          done();
+        }
+      };
+
+      // 多时机尝试
+      tryPlay();
+      this.video.onloadedmetadata = tryPlay;
+      this.video.addEventListener('canplay', tryPlay, { once: true });
+      // 超时保底（防止微信中事件不触发导致永远卡住）
+      setTimeout(tryPlay, 500);
+      setTimeout(done, 2000);
     });
   }
 

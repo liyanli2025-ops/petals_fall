@@ -942,3 +942,46 @@ PC 端浏览器中，人物移动时 `canvas-person`（人物遮罩层）出现�
 | JPEG 导出 | 移动端 `toBlob('image/jpeg', 0.92)` 代替 PNG | blob 从 ~8MB 降到 ~500KB |
 
 综合效果：移动端拍照从点击到弹出预览快 3-5 倍。
+
+---
+
+## 十一、微信摄像头黑屏修复（2026-04-06）
+
+### 1. 问题现象
+
+微信内打开 H5 点击"开始体验"后，能听到摄像头镜头盖打开的声音（说明 `getUserMedia` 成功拿到了 stream），但屏幕仍然是黑色的。时好时坏，概率性复现。
+
+### 2. 根因分析
+
+`initWithStream()` 中将 stream 赋给 `video.srcObject` 后，注册 `onloadedmetadata` 回调来调用 `video.play()`。但在微信内置浏览器中，`loadedmetadata` 事件**可能在回调注册之前就已经触发**（stream 赋值后同步或极短延迟触发），导致回调错过，`play()` 永远不被调用。
+
+```javascript
+// 旧代码：单一时机，容易错过
+this.video.srcObject = stream;       // 赋值后 loadedmetadata 可能立即触发
+this.video.onloadedmetadata = () => { // 注册时事件已经过了
+  this.video.play();                  // 永远不执行 → 黑屏
+};
+```
+
+`startCamera()` 中的 `onloadedmetadata` 回调同样有这个问题，且更严重——如果事件错过，返回的 Promise 永远不会 resolve，导致后续所有初始化（花瓣系统、人体分割等）全部卡死。
+
+### 3. 修复方案
+
+`initWithStream` 和 `startCamera` 都改为**多时机多次尝试 play**：
+
+```javascript
+const tryPlay = () => {
+  if (this.video.paused && this.video.srcObject) {
+    this.video.play().catch(() => {});
+  }
+};
+
+tryPlay();                                          // 1. 立即
+this.video.onloadedmetadata = tryPlay;              // 2. loadedmetadata
+this.video.addEventListener('canplay', tryPlay);    // 3. canplay
+setTimeout(tryPlay, 300);                           // 4. 延迟 300ms
+setTimeout(tryPlay, 800);                           // 5. 延迟 800ms
+setTimeout(tryPlay, 1500);                          // 6. 延迟 1.5s
+```
+
+`startCamera` 额外增加 **2 秒超时保底**，防止 Promise 永远不 resolve 导致初始化卡死。
