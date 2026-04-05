@@ -343,7 +343,8 @@
     document.addEventListener('touchstart', (e) => {
       // 不阻止 UI 按钮及其子元素（SVG/path 等）的触摸
       const el = e.target;
-      if (el.tagName === 'INPUT' || el.tagName === 'BUTTON' || el.closest('.ui-btn') || el.closest('.petal-control')) {
+      if (el.tagName === 'INPUT' || el.tagName === 'BUTTON' || el.closest('.ui-btn') || el.closest('.petal-control')
+        || el.closest('.photo-preview-btn') || el.closest('.photo-preview-overlay') || el.closest('.save-preview-close')) {
         return;
       }
       e.preventDefault();

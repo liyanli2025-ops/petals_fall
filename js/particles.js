@@ -784,6 +784,16 @@ class PetalParticleSystem {
     const camX = this.cameraWorldPos.x, camY = this.cameraWorldPos.y, camZ = this.cameraWorldPos.z;
     const gustActive = this.gust.active;
     const recycleDistSq = (worldRadius + 5) * (worldRadius + 5);
+
+    // === 视锥体外回收：计算相机前方向量 ===
+    // 获取相机世界空间前方向量（每帧只算一次）
+    if (!this._camForward) this._camForward = new THREE.Vector3();
+    this.camera.getWorldDirection(this._camForward);
+    const fwdX = this._camForward.x, fwdY = this._camForward.y, fwdZ = this._camForward.z;
+    // FOV 60° → 半角 30°，加 25° 余量 = 55°，cos(55°) ≈ 0.574
+    // 对远景层更严格：cos(50°) ≈ 0.643
+    const cosThresholdNear = 0.42;  // ~65° 近景宽松（用户可能在转头）
+    const cosThresholdFar  = 0.57;  // ~55° 远景严格（反正看不清）
     const collisionActive = this.bodyCollision && this.bodyCollision.isActive;
     const screenW = window.innerWidth, screenH = window.innerHeight;
     const projCamera = this.camera;
@@ -898,7 +908,14 @@ class PetalParticleSystem {
 
         if (p.slideSpeed > p.originalFallSpeed * 1.5) { p.state = 'falling'; p.fallSpeed = p.originalFallSpeed; }
         const dx2 = p.px - camX, dy2 = p.py - camY, dz2 = p.pz - camZ;
-        if (dx2*dx2 + dy2*dy2 + dz2*dz2 > recycleDistSq) { p.state = 'falling'; p.fallSpeed = p.originalFallSpeed; this._recyclePetalData(p); }
+        const slidDistSq = dx2*dx2 + dy2*dy2 + dz2*dz2;
+        if (slidDistSq > recycleDistSq) { p.state = 'falling'; p.fallSpeed = p.originalFallSpeed; this._recyclePetalData(p); }
+        // 滑落中的花瓣若在视野背后也回收
+        else if (slidDistSq > 2.25) {
+          const slidDist = Math.sqrt(slidDistSq);
+          const cosA = (dx2 * fwdX + dy2 * fwdY + dz2 * fwdZ) / slidDist;
+          if (cosA < 0) { p.state = 'falling'; p.fallSpeed = p.originalFallSpeed; this._recyclePetalData(p); }
+        }
         continue;
       }
 
@@ -950,7 +967,34 @@ class PetalParticleSystem {
         }
       }
       const dx = p.px - camX, dy = p.py - camY, dz = p.pz - camZ;
-      if (dx*dx + dy*dy + dz*dz > recycleDistSq) this._recyclePetalData(p);
+      const distSqToCam = dx*dx + dy*dy + dz*dz;
+      if (distSqToCam > recycleDistSq) { this._recyclePetalData(p); continue; }
+
+      // === 视锥体外回收：脚下/背后的花瓣快速回收 ===
+      // 只对距离 > 1.5 的花瓣做角度判定（太近的可能刚生成）
+      if (distSqToCam > 2.25) {
+        const distToCam = Math.sqrt(distSqToCam);
+        // 花瓣方向与相机前方的 cos 夹角
+        const cosAngle = (dx * fwdX + dy * fwdY + dz * fwdZ) / distToCam;
+        // 远景层用严格阈值，近景层用宽松阈值
+        const isFarLayer = (p.renderLayerKey === 'far');
+        const threshold = isFarLayer ? cosThresholdFar : cosThresholdNear;
+        // cosAngle < threshold 说明花瓣在视锥体外（夹角大于阈值角度）
+        // cosAngle < 0 说明花瓣在相机背后
+        if (cosAngle < threshold) {
+          // 背后的花瓣直接回收
+          if (cosAngle < 0) {
+            this._recyclePetalData(p);
+          } else {
+            // 视野边缘外的花瓣：距离越远越快回收
+            // 近处的给机会（用户转头可能看到），远处的直接回收
+            const recycleDist = isFarLayer ? 5 : 8;
+            if (distToCam > recycleDist) {
+              this._recyclePetalData(p);
+            }
+          }
+        }
+      }
 
       // 碰撞（只对 mid/midNear/near 层，且停留上限 3 片）
       // 人物很近时（面积大、占满屏幕）禁用碰撞停靠，避免花瓣遮挡人脸

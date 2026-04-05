@@ -556,13 +556,25 @@ class CaptureManager {
       }, 300);
     };
 
-    // 重拍
-    overlay.querySelector('#photo-preview-retake').addEventListener('click', cleanup);
+    // 重拍（click + touchend 双绑，iOS 兼容）
+    let retakeDone = false;
+    const retakeHandler = (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (retakeDone) return; retakeDone = true;
+      cleanup();
+    };
+    overlay.querySelector('#photo-preview-retake').addEventListener('click', retakeHandler);
+    overlay.querySelector('#photo-preview-retake').addEventListener('touchend', retakeHandler);
 
-    // 保存：先调保存，完成后再关闭预览
-    overlay.querySelector('#photo-preview-save').addEventListener('click', () => {
+    // 保存（click + touchend 双绑）
+    let saveDone = false;
+    const saveHandler = (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (saveDone) return; saveDone = true;
       this._savePhoto(blob, filename, cleanup);
-    });
+    };
+    overlay.querySelector('#photo-preview-save').addEventListener('click', saveHandler);
+    overlay.querySelector('#photo-preview-save').addEventListener('touchend', saveHandler);
   }
 
   /**
@@ -875,13 +887,25 @@ class CaptureManager {
       }, 300);
     };
 
-    // 丢弃
-    overlay.querySelector('#video-preview-discard').addEventListener('click', cleanup);
+    // 丢弃（click + touchend 双绑，iOS 兼容）
+    let discardDone = false;
+    const discardHandler = (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (discardDone) return; discardDone = true;
+      cleanup();
+    };
+    overlay.querySelector('#video-preview-discard').addEventListener('click', discardHandler);
+    overlay.querySelector('#video-preview-discard').addEventListener('touchend', discardHandler);
 
-    // 保存：先调保存，完成后再关闭预览
-    overlay.querySelector('#video-preview-save').addEventListener('click', () => {
+    // 保存（click + touchend 双绑）
+    let saveDone = false;
+    const saveHandler = (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (saveDone) return; saveDone = true;
       this._saveMedia(blob, filename, cleanup);
-    });
+    };
+    overlay.querySelector('#video-preview-save').addEventListener('click', saveHandler);
+    overlay.querySelector('#video-preview-save').addEventListener('touchend', saveHandler);
   }
 
   _resetRecordingUI() {
