@@ -192,3 +192,58 @@ if (gl.isContextLost()) { ... }
 | 文件 | 改动 |
 |------|------|
 | `js/capture.js` | 新增 `_defringeMid()` 方法；`_composite()` 和 `_preloadMotionBlurHistory()` 中 mid 层使用 defringe 处理后的 canvas |
+
+## 录像黑屏 & 模糊丢失修复
+
+### 踩坑 5：录像预览黑屏（两个循环抢画布）
+
+**症状**：录完视频后弹出预览，画面全黑。保存下来的视频也是黑的。之前（v9 架构）正常，改成 v11（单 WebGL + 3 个 2D canvas）后出现。
+
+**原因**：`_startCompositeLoop()`（录像合成）和 `particles.update()`（花瓣动画）各自跑独立的 `requestAnimationFrame` 循环。两个循环不同步：
+
+1. 花瓣动画 `update()` 做 3-pass 渲染，把 WebGL 内容 `drawImage` 到 `canvasFar/canvasMid/canvasNear`
+2. 录像合成 `_composite()` 从 `canvasFar/canvasMid/canvasNear` 读取内容合成视频帧
+
+当录像合成去读的时候，花瓣动画可能刚好在 `clearRect` 准备画下一帧，导致读到空白内容 → 黑屏。
+
+**修复**：删掉独立的 `_startCompositeLoop()`，改为在 `particles.js` 的 `update()` 末尾（3-pass 渲染完成后）同步调用 `captureManager.onFrameReady()`。这样合成时 2D canvas 一定有内容。
+
+```javascript
+// particles.js — 3-pass 渲染完成后
+if (this.captureManager && this.captureManager.isRecording) {
+  this.captureManager.onFrameReady();
+}
+```
+
+```javascript
+// capture.js — 新增同步合成入口
+onFrameReady() {
+  if (!this.isRecording) return;
+  this._composite();
+}
+```
+
+**教训**：涉及多个 canvas 的读写时序时，不能用独立的 `requestAnimationFrame` 循环分别操作。必须在同一帧的同一个同步执行块内完成"写 → 读"。
+
+### 踩坑 6：录像保存后模糊花瓣消失
+
+**症状**：录像预览不再黑屏了，但保存下来的视频里远景和近景的模糊花瓣消失了，只有中景的清晰花瓣。
+
+**原因**：录像分支为了"避免 WebGL 黑帧"使用了简化版模糊（`_drawScaleBlur` + `_drawSoftScaleBlur`），效果远不如拍照时的 `_drawBlurred`（WebGL 高斯模糊）。简化版的模糊半径太小（`blurRadius=1.5`），在 1x DPR 的录像 canvas 上几乎看不出效果。
+
+**修复**：黑屏问题已通过同步合成解决，录像时不再需要回避 WebGL 模糊。直接统一使用 `_drawBlurred` 方法：
+
+| 花瓣层 | 修复前（录像） | 修复后（录像） | 拍照 |
+|--------|---------------|---------------|------|
+| 远景 far | `_drawScaleBlur(1.5)` ≈ 几乎无效 | `_drawBlurred(2.5 * DPR)` | `_drawBlurred(2.5 * DPR)` |
+| 近景 near | `_drawSoftScaleBlur` ≈ blur(3px) | `_drawBlurred(4 * DPR)` | `_drawBlurred(4 * DPR)` |
+
+**教训**：录像画质不能比拍照降级。用户保存的视频会被反复观看和分享，质量差会直接影响体验。性能优化应该在不影响最终产出物的前提下进行。
+
+### 文件改动
+
+| 文件 | 改动 |
+|------|------|
+| `js/capture.js` | 删除 `_startCompositeLoop()` 独立循环，新增 `onFrameReady()` 同步入口；录像分支改用 `_drawBlurred` 完整模糊 |
+| `js/particles.js` | `update()` 末尾新增 `captureManager.onFrameReady()` 调用 |
+| `js/app.js` | 双向绑定 `particles.captureManager = capture` |

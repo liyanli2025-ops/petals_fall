@@ -247,6 +247,8 @@
       capture.cameraManager = cameraModule;
       capture.particleSystem = particles;
       capture.init();
+      // 双向绑定：花瓣渲染完成后同步通知录像合成（解决录像黑屏）
+      particles.captureManager = capture;
 
       // 暴露 gyroscope 到全局，供拍照时获取相机数据
       window._gyroscope = gyroscope;

@@ -34,8 +34,8 @@ class PetalParticleSystem {
     this.cameraWorldPos = { x: 0, y: 0, z: 0 };
 
     this.petalTexturePaths = [
-      'petal1.png', 'petal2.png', 'petal3.png', 'petal4.png',
-      'petal5.png', 'petal6.png', 'petal7.png', 'petal8.png'
+      'petal1v2.png', 'petal2v2.png', 'petal3v2.png', 'petal4v2.png',
+      'petal5v2.png', 'petal6v2.png', 'petal7v2.png', 'petal8v2.png'
     ];
 
     this.petalMaterials = [];
@@ -377,8 +377,6 @@ class PetalParticleSystem {
     const total = this.petalTexturePaths.length;
     this.petalTexturePaths.forEach((path) => {
       const texture = this.textureLoader.load(path, () => {
-        // 纹理加载完成后，对 alpha 边缘做轻量羽化
-        this._softenEdgeAlpha(texture);
         loadedCount++;
         if (loadedCount === total) this._onAllTexturesLoaded();
       }, undefined, () => {
@@ -412,65 +410,6 @@ class PetalParticleSystem {
     });
   }
 
-  /**
-   * 轻量 alpha 边缘羽化：只对纹理 alpha 通道的边缘像素做 3×3 高斯平滑
-   * 花瓣内部纹理和颜色完全不受影响，仅让 0↔255 的硬切变成 2-3px 的渐变
-   */
-  _softenEdgeAlpha(texture) {
-    const img = texture.image;
-    if (!img || !img.width) return;
-    const w = img.width, h = img.height;
-    const canvas = document.createElement('canvas');
-    canvas.width = w; canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, 0, 0);
-    const imageData = ctx.getImageData(0, 0, w, h);
-    const data = imageData.data;
-
-    // 提取原始 alpha 通道
-    const origAlpha = new Uint8Array(w * h);
-    for (let i = 0; i < w * h; i++) origAlpha[i] = data[i * 4 + 3];
-
-    // 3×3 高斯核, sum=16
-    const kernel = [1, 2, 1, 2, 4, 2, 1, 2, 1];
-
-    // 做 2 轮平滑，让羽化范围稍大一些（约 3-4px 过渡）
-    for (let pass = 0; pass < 2; pass++) {
-      // 每轮用最新的 alpha 做源
-      const srcAlpha = pass === 0 ? origAlpha : new Uint8Array(w * h);
-      if (pass > 0) {
-        for (let i = 0; i < w * h; i++) srcAlpha[i] = data[i * 4 + 3];
-      }
-
-      for (let y = 1; y < h - 1; y++) {
-        for (let x = 1; x < w - 1; x++) {
-          const a = srcAlpha[y * w + x];
-          // 只处理边缘像素：自身与相邻像素有明显 alpha 差异
-          let isEdge = false;
-          for (let ky = -1; ky <= 1 && !isEdge; ky++) {
-            for (let kx = -1; kx <= 1 && !isEdge; kx++) {
-              if (ky === 0 && kx === 0) continue;
-              const na = srcAlpha[(y + ky) * w + (x + kx)];
-              if (Math.abs(na - a) > 40) isEdge = true;
-            }
-          }
-          if (!isEdge) continue;
-
-          let sum = 0, ki = 0;
-          for (let ky = -1; ky <= 1; ky++) {
-            for (let kx = -1; kx <= 1; kx++) {
-              sum += srcAlpha[(y + ky) * w + (x + kx)] * kernel[ki++];
-            }
-          }
-          data[(y * w + x) * 4 + 3] = (sum + 8) >> 4;
-        }
-      }
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-    texture.image = canvas;
-    texture.needsUpdate = true;
-  }
 
   _onAllTexturesLoaded() {
     console.log('花瓣贴图加载完成，创建 InstancedMesh...');
@@ -1303,6 +1242,11 @@ class PetalParticleSystem {
           layer.ctx.drawImage(webglCanvas, 0, 0, dw, dh);
         }
       }
+    }
+
+    // 录像时：花瓣渲染完成，通知 CaptureManager 立即合成（同步，确保 canvas 有内容）
+    if (this.captureManager && this.captureManager.isRecording) {
+      this.captureManager.onFrameReady();
     }
 
     // FPS

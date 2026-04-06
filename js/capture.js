@@ -42,11 +42,6 @@ class CaptureManager {
     this._historyWriteIndex = 0;        // 当前写入位置
     this._historyFilled = 0;            // 已填充的帧数
     this._motionBlurInited = false;
-
-    // === 中景花瓣边缘修复（defringe）===
-    // 拍照/录像合成时对 mid 层做边缘 RGB 修复，消除抠图深色边
-    this._defringeCanvas = null;
-    this._defringeCtx = null;
   }
 
   /** 重置运动模糊历史帧缓存（密度变化时调用，防止旧帧残留） */
@@ -139,140 +134,46 @@ class CaptureManager {
   }
 
   /**
-   * 对中景花瓣层做边缘 RGB 修复（Defringe）
+   * 将人物遮罩层绘制到合成 canvas（远景花瓣之后、中景花瓣之前调用）
    * 
-   * 原理：花瓣素材抠图时，半透明边缘像素混入了深色背景 RGB，
-   * 导致渲染时出现一圈深色边。
+   * canvasPerson 由 segmentation.js 生成：
+   *   - 人物区域 = 视频帧 RGB + alpha=255
+   *   - 非人物区域 = alpha=0（完全透明）
    * 
-   * 处理方式：找到边缘像素（alpha 在 10~240 且有透明邻居），
-   * 用其内侧不透明邻居的平均 RGB 替换，alpha 保持不变。
-   * 等价于 Photoshop 的「去边 / Defringe」。
+   * 用默认 source-over 直接绘制即可：
+   *   - 人物不透明像素自然覆盖下层远景花瓣
+   *   - 透明区域不影响已有花瓣
    * 
-   * 只在成像合成时调用，不影响实时预览。
+   * 不使用任何 globalCompositeOperation 切换，避免污染后续绘制。
    * 
-   * @param {HTMLCanvasElement} sourceCanvas - 中景花瓣层 canvas
-   * @param {number} targetW - 目标绘制宽度
-   * @param {number} targetH - 目标绘制高度
-   * @returns {HTMLCanvasElement} 处理后的 canvas
+   * @param {CanvasRenderingContext2D} ctx - 目标 canvas 上下文
+   * @param {number} w - 目标宽度
+   * @param {number} h - 目标高度
    */
-  _defringeMid(sourceCanvas, targetW, targetH) {
-    if (!sourceCanvas || sourceCanvas.width === 0 || sourceCanvas.height === 0) {
-      return sourceCanvas;
+  _drawPersonMask(ctx, w, h) {
+    if (!this.canvasPerson || this.canvasPerson.width === 0 || this.canvasPerson.height === 0) return;
+
+    // canvasPerson 尺寸 = 视频原始分辨率，需要做 object-fit: cover 映射
+    // 映射参数与视频绘制（第 294-310 行）完全一致
+    const vw = this.canvasPerson.width;
+    const vh = this.canvasPerson.height;
+    const scale = Math.max(w / vw, h / vh);
+    const sw = vw * scale;
+    const sh = vh * scale;
+    const sx = (w - sw) / 2;
+    const sy = (h - sh) / 2;
+
+    // 前置摄像头需要水平镜像翻转（与视频绘制保持一致）
+    const isFront = this.cameraManager && this.cameraManager.facingMode === 'user';
+    if (isFront) {
+      ctx.save();
+      ctx.translate(w, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(this.canvasPerson, 0, 0, vw, vh, sx, sy, sw, sh);
+      ctx.restore();
+    } else {
+      ctx.drawImage(this.canvasPerson, 0, 0, vw, vh, sx, sy, sw, sh);
     }
-
-    // 懒初始化离屏 canvas
-    if (!this._defringeCanvas) {
-      this._defringeCanvas = document.createElement('canvas');
-      this._defringeCtx = this._defringeCanvas.getContext('2d', { willReadFrequently: true });
-    }
-
-    const w = sourceCanvas.width;
-    const h = sourceCanvas.height;
-
-    // 尺寸变化时重新设置
-    if (this._defringeCanvas.width !== w || this._defringeCanvas.height !== h) {
-      this._defringeCanvas.width = w;
-      this._defringeCanvas.height = h;
-    }
-
-    const ctx = this._defringeCtx;
-    ctx.clearRect(0, 0, w, h);
-    ctx.drawImage(sourceCanvas, 0, 0);
-
-    const imageData = ctx.getImageData(0, 0, w, h);
-    const data = imageData.data;
-    const totalPixels = w * h;
-
-    // 第一步：标记边缘像素（alpha 在阈值范围内，且 3×3 邻域有透明像素）
-    // 使用两级阈值：
-    //   - 内部像素：alpha > 200（用作 RGB 参考源）
-    //   - 边缘像素：alpha 在 1~240，且邻域有 alpha < 10 的透明像素
-    const ALPHA_OPAQUE = 200;   // 内部不透明阈值
-    const ALPHA_TRANSPARENT = 10; // 外部透明阈值
-
-    // 做 2 轮扩展修复（从内向外逐步修正）
-    for (let pass = 0; pass < 2; pass++) {
-      // 每轮重新读取当前像素状态
-      const curData = pass === 0 ? data : ctx.getImageData(0, 0, w, h).data;
-      const newR = new Uint8Array(totalPixels);
-      const newG = new Uint8Array(totalPixels);
-      const newB = new Uint8Array(totalPixels);
-      let modified = false;
-
-      // 复制当前 RGB
-      for (let i = 0; i < totalPixels; i++) {
-        newR[i] = curData[i * 4];
-        newG[i] = curData[i * 4 + 1];
-        newB[i] = curData[i * 4 + 2];
-      }
-
-      for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x++) {
-          const idx = y * w + x;
-          const alpha = curData[idx * 4 + 3];
-
-          // 跳过完全透明和完全不透明的像素
-          if (alpha < 1 || alpha > ALPHA_OPAQUE) continue;
-
-          // 检查是否为边缘像素：邻域中有透明像素
-          let hasTransparentNeighbor = false;
-          // 扩大到 5×5 搜索范围（第二轮更积极）
-          const searchR = pass === 0 ? 2 : 3;
-          for (let ky = -searchR; ky <= searchR && !hasTransparentNeighbor; ky++) {
-            for (let kx = -searchR; kx <= searchR && !hasTransparentNeighbor; kx++) {
-              if (kx === 0 && ky === 0) continue;
-              const nx = x + kx, ny = y + ky;
-              if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
-                if (curData[(ny * w + nx) * 4 + 3] < ALPHA_TRANSPARENT) {
-                  hasTransparentNeighbor = true;
-                }
-              }
-            }
-          }
-
-          if (!hasTransparentNeighbor) continue;
-
-          // 这是边缘像素 — 收集邻域内不透明像素的 RGB 平均值
-          let sumR = 0, sumG = 0, sumB = 0, count = 0;
-          // 搜索 5×5 邻域中的内部像素
-          for (let ky = -2; ky <= 2; ky++) {
-            for (let kx = -2; kx <= 2; kx++) {
-              const nx = x + kx, ny = y + ky;
-              if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
-                const nIdx = ny * w + nx;
-                if (curData[nIdx * 4 + 3] > ALPHA_OPAQUE) {
-                  sumR += curData[nIdx * 4];
-                  sumG += curData[nIdx * 4 + 1];
-                  sumB += curData[nIdx * 4 + 2];
-                  count++;
-                }
-              }
-            }
-          }
-
-          if (count > 0) {
-            // 用内部像素的平均 RGB 替换边缘像素的 RGB
-            newR[idx] = Math.round(sumR / count);
-            newG[idx] = Math.round(sumG / count);
-            newB[idx] = Math.round(sumB / count);
-            modified = true;
-          }
-        }
-      }
-
-      if (modified) {
-        // 将修正后的 RGB 写回（alpha 保持不变）
-        for (let i = 0; i < totalPixels; i++) {
-          data[i * 4] = newR[i];
-          data[i * 4 + 1] = newG[i];
-          data[i * 4 + 2] = newB[i];
-          // data[i * 4 + 3] 保持不变
-        }
-        ctx.putImageData(imageData, 0, 0);
-      }
-    }
-
-    return this._defringeCanvas;
   }
 
   /**
@@ -324,29 +225,29 @@ class CaptureManager {
     // DPR 补偿：合成 canvas 分辨率是屏幕的 N 倍，模糊半径需等比放大
     const compositeDPR = w / window.innerWidth;
 
-    // === 录像时：跳过 blur，直接 drawImage（核心性能优化） ===
-    // WebGL blur 每层需要 ~8-10ms（纹理上传+双pass+回读），3 层共 ~25-30ms
-    // 直接 drawImage 只需 ~1ms/层，录像 1x 分辨率下 blur 效果几乎不可见
+    // === 录像时：与拍照相同的完整模糊流程（黑屏已通过同步合成解决） ===
     if (this.isRecording) {
-      // 2. 远景花瓣层
+      // 2. 远景花瓣层（完整高斯模糊，与拍照一致）
       if (this.canvasFar.width > 0) {
         ctx.save();
         ctx.globalAlpha = 0.9;
-        ctx.drawImage(this.canvasFar, 0, 0, w, h);
+        this._drawBlurred(ctx, this.canvasFar, w, h, 2.5 * compositeDPR);
         ctx.restore();
       }
 
-      // 3. 中景花瓣层（边缘 RGB 修复）
+      // 3. 人物遮罩层 — 遮挡远景花瓣，保持人在远景前面
+      this._drawPersonMask(ctx, w, h);
+
+      // 4. 中景花瓣层（清晰，素材已预处理去边）
       if (this.canvasMid.width > 0) {
-        const defringedMid = this._defringeMid(this.canvasMid, w, h);
-        ctx.drawImage(defringedMid, 0, 0, w, h);
+        ctx.drawImage(this.canvasMid, 0, 0, w, h);
       }
 
-      // 5. 近景花瓣层
+      // 5. 近景花瓣层（完整高斯模糊，与拍照一致）
       if (this.canvasNear.width > 0) {
         ctx.save();
         ctx.globalAlpha = 0.55;
-        ctx.drawImage(this.canvasNear, 0, 0, w, h);
+        this._drawBlurred(ctx, this.canvasNear, w, h, 4 * compositeDPR);
         ctx.restore();
       }
       return;
@@ -370,13 +271,15 @@ class CaptureManager {
       tmpCtx.restore();
     }
 
-    // 3. 中景花瓣层（清晰 + 边缘 RGB 修复）
+    // 3. 人物遮罩层 — 遮挡远景花瓣，保持人在远景前面
+    this._drawPersonMask(tmpCtx, w, h);
+
+    // 4. 中景花瓣层（清晰，素材已预处理去边）
     if (this.canvasMid.width > 0) {
-      const defringedMid = this._defringeMid(this.canvasMid, w, h);
-      tmpCtx.drawImage(defringedMid, 0, 0, w, h);
+      tmpCtx.drawImage(this.canvasMid, 0, 0, w, h);
     }
 
-    // 4. 人物遮罩层 — 录制合成时跳过！
+    // 5. 人物遮罩层 — 拍照合成时已在远景后绘制，此处无需重复
 
     // 5. 近景花瓣层（CSS blur(4px) 对应 + 降低透明度）
     if (this.canvasNear.width > 0) {
@@ -441,9 +344,10 @@ class CaptureManager {
         this._drawBlurred(tmpCtx, this.canvasFar, w, h, 2.5 * compositeDPR);
         tmpCtx.restore();
       }
+      // 人物遮罩层 — 遮挡远景花瓣（与 _composite 保持一致）
+      this._drawPersonMask(tmpCtx, w, h);
       if (this.canvasMid.width > 0) {
-        const defringedMid = this._defringeMid(this.canvasMid, w, h);
-        this._drawBlurred(tmpCtx, defringedMid, w, h, 1 * compositeDPR);
+        tmpCtx.drawImage(this.canvasMid, 0, 0, w, h);
       }
       if (this.canvasNear.width > 0) {
         tmpCtx.save();
@@ -530,6 +434,71 @@ class CaptureManager {
     }
 
     ctx.drawImage(this._blurCanvas2, 0, 0, this._blurCanvas2.width, this._blurCanvas2.height, 0, 0, w, h);
+  }
+
+  /**
+   * 轻量缩放模糊（录像用）— 不走 WebGL，纯 Canvas 2D 缩小再放大
+   * 性能 ~1-2ms，适合录像时对远景层做轻度虚化
+   */
+  _drawScaleBlur(ctx, sourceCanvas, w, h, blurRadius) {
+    if (!this._scaleBlurCanvas) {
+      this._scaleBlurCanvas = document.createElement('canvas');
+      this._scaleBlurCtx = this._scaleBlurCanvas.getContext('2d');
+    }
+    // 缩小比例：blur 越大缩得越小
+    const scale = Math.max(0.08, 1 / (1 + blurRadius * 1.5));
+    const sw = Math.max(4, Math.floor(w * scale));
+    const sh = Math.max(4, Math.floor(h * scale));
+    this._scaleBlurCanvas.width = sw;
+    this._scaleBlurCanvas.height = sh;
+    this._scaleBlurCtx.imageSmoothingEnabled = true;
+    this._scaleBlurCtx.imageSmoothingQuality = 'high';
+    // 缩小
+    this._scaleBlurCtx.drawImage(sourceCanvas, 0, 0, sw, sh);
+    // 放大回原尺寸 — 双线性插值自然产生模糊效果
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(this._scaleBlurCanvas, 0, 0, sw, sh, 0, 0, w, h);
+  }
+
+  /**
+   * 两级柔和缩放模糊（录像近景层专用）
+   * 先缩到 50%，再缩到 25%，最后放大回原尺寸
+   * 每级缩放都很温和（只 2x），不会破坏边缘半透明像素
+   * 效果接近 blur(3-4px)，无锯齿
+   */
+  _drawSoftScaleBlur(ctx, sourceCanvas, w, h) {
+    if (!this._softBlurCanvas1) {
+      this._softBlurCanvas1 = document.createElement('canvas');
+      this._softBlurCtx1 = this._softBlurCanvas1.getContext('2d');
+    }
+    if (!this._softBlurCanvas2) {
+      this._softBlurCanvas2 = document.createElement('canvas');
+      this._softBlurCtx2 = this._softBlurCanvas2.getContext('2d');
+    }
+
+    // 第一级：缩到 50%
+    const w1 = Math.max(4, Math.floor(w * 0.5));
+    const h1 = Math.max(4, Math.floor(h * 0.5));
+    this._softBlurCanvas1.width = w1;
+    this._softBlurCanvas1.height = h1;
+    this._softBlurCtx1.imageSmoothingEnabled = true;
+    this._softBlurCtx1.imageSmoothingQuality = 'high';
+    this._softBlurCtx1.drawImage(sourceCanvas, 0, 0, w1, h1);
+
+    // 第二级：再缩到 25%
+    const w2 = Math.max(4, Math.floor(w * 0.25));
+    const h2 = Math.max(4, Math.floor(h * 0.25));
+    this._softBlurCanvas2.width = w2;
+    this._softBlurCanvas2.height = h2;
+    this._softBlurCtx2.imageSmoothingEnabled = true;
+    this._softBlurCtx2.imageSmoothingQuality = 'high';
+    this._softBlurCtx2.drawImage(this._softBlurCanvas1, 0, 0, w1, h1, 0, 0, w2, h2);
+
+    // 放大回原尺寸
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(this._softBlurCanvas2, 0, 0, w2, h2, 0, 0, w, h);
   }
 
   /**
@@ -882,7 +851,7 @@ class CaptureManager {
     this._updateCanvasSize();
 
     // 从合成 canvas 获取媒体流
-    const stream = this.compositeCanvas.captureStream(30);
+    const stream = this.compositeCanvas.captureStream(24);
 
     // 尝试添加音频（如果摄像头有音频轨道）
     // 本项目 audio: false，所以一般没有音频
@@ -912,7 +881,7 @@ class CaptureManager {
       this.recordedChunks = [];
       this.mediaRecorder = new MediaRecorder(stream, {
         mimeType: selectedMime,
-        videoBitsPerSecond: 4000000, // 4Mbps
+        videoBitsPerSecond: 6000000, // 6Mbps — 提高编码质量减少压缩卡顿感
       });
 
       this.mediaRecorder.ondataavailable = (e) => {
@@ -930,8 +899,11 @@ class CaptureManager {
         this._resetRecordingUI();
       };
 
-      this.mediaRecorder.start(100); // 每 100ms 收集一次数据
+      // 先设 isRecording，再合成一帧，确保第一帧不是黑色
       this.isRecording = true;
+      this._composite();
+
+      this.mediaRecorder.start(100); // 每 100ms 收集一次数据
       this.recordingStartTime = Date.now();
 
       // 更新 UI
@@ -948,7 +920,8 @@ class CaptureManager {
       this._showToast('开始录像');
     } catch (err) {
       console.error('录像启动失败:', err);
-      this._showToast('录像启动失败');
+      this.isRecording = false;
+      this._showToast('录像失败: ' + (err.message || err));
     }
   }
 
@@ -965,12 +938,17 @@ class CaptureManager {
   }
 
   _startCompositeLoop() {
-    const loop = () => {
-      if (!this.isRecording) return;
-      this._composite();
-      requestAnimationFrame(loop);
-    };
-    requestAnimationFrame(loop);
+    // 不再需要独立循环 — 由花瓣系统在每帧渲染完成后调用 onFrameReady()
+    // 保留空方法以兼容调用
+  }
+
+  /**
+   * 花瓣系统每帧渲染完成后调用此方法（2D canvas 内容已就绪）
+   * 这样合成时 canvasFar/canvasMid/canvasNear 一定有内容，不会黑屏
+   */
+  onFrameReady() {
+    if (!this.isRecording) return;
+    this._composite();
   }
 
   _updateRecordingTime() {
@@ -1011,7 +989,7 @@ class CaptureManager {
     overlay.className = 'photo-preview-overlay';
     overlay.innerHTML = `
       <div class="photo-preview-frame">
-        <video class="video-preview-player-new" autoplay loop playsinline webkit-playsinline></video>
+        <video class="video-preview-player-new" loop muted playsinline webkit-playsinline preload="auto"></video>
       </div>
       <div class="photo-preview-actions">
         <button class="photo-preview-btn" id="video-preview-discard">
@@ -1028,7 +1006,30 @@ class CaptureManager {
 
     const video = overlay.querySelector('.video-preview-player-new');
     video.src = videoUrl;
-    video.play().catch(() => {});
+    video.load(); // 强制触发加载（iOS Safari 对 blob URL 需要显式 load）
+
+    // iOS Safari blob URL 视频播放策略：
+    // 不做 currentTime seek hack（在某些 iOS 版本上反而导致黑屏）
+    // 直接 play()，通过多事件 + 多次重试确保播放成功
+    const tryPlay = () => {
+      video.play().catch(() => {});
+    };
+
+    // 多事件监听，取最先触发的
+    video.addEventListener('canplay', tryPlay, { once: true });
+    video.addEventListener('loadeddata', tryPlay, { once: true });
+
+    // 如果 readyState 已足够，直接播放
+    if (video.readyState >= 3) {
+      tryPlay();
+    }
+
+    // 多轮兜底重试（无条件尝试，不检查 readyState）
+    [500, 1500, 3000, 5000].forEach(delay => {
+      setTimeout(() => {
+        if (video.paused) video.play().catch(() => {});
+      }, delay);
+    });
 
     // 入场动效
     requestAnimationFrame(() => {
