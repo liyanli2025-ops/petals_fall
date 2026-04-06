@@ -324,6 +324,7 @@
     $petalDensity.addEventListener('input', (e) => {
       const count = parseInt(e.target.value);
       if (particles) particles.setPetalCount(count);
+      if (capture) capture.resetMotionBlurHistory();
     });
 
     document.addEventListener('visibilitychange', () => {

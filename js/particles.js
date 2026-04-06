@@ -46,14 +46,14 @@ class PetalParticleSystem {
     // 8 个逻辑层，映射到 3 个渲染层
     // 远景朦胧层加厚（70%），近景层精简（30%），减少遮挡
     this.layerConfig = {
-      dust:     { ratio: 0.14, scaleMin: 0.15, scaleMax: 0.25, radiusMin: 10, radiusMax: 18, renderLayer: 'far',  fallMult: 0.7  },
-      veryFar:  { ratio: 0.19, scaleMin: 0.22, scaleMax: 0.38, radiusMin: 8,  radiusMax: 14, renderLayer: 'far',  fallMult: 0.8  },
-      far:      { ratio: 0.19, scaleMin: 0.30, scaleMax: 0.48, radiusMin: 6,  radiusMax: 11, renderLayer: 'far',  fallMult: 0.9  },
-      midFar:   { ratio: 0.18, scaleMin: 0.38, scaleMax: 0.58, radiusMin: 5,  radiusMax: 10, renderLayer: 'far',  fallMult: 1.0  },
-      mid:      { ratio: 0.12, scaleMin: 0.45, scaleMax: 0.65, radiusMin: 6,  radiusMax: 12, renderLayer: 'mid',  fallMult: 1.0  },
-      midNear:  { ratio: 0.08, scaleMin: 0.50, scaleMax: 0.70, radiusMin: 5,  radiusMax: 9,  renderLayer: 'mid',  fallMult: 1.05 },
-      near:     { ratio: 0.06, scaleMin: 0.55, scaleMax: 0.75, radiusMin: 5,  radiusMax: 8,  renderLayer: 'near', fallMult: 1.1  },
-      veryNear: { ratio: 0.04, scaleMin: 0.70, scaleMax: 0.90, radiusMin: 4.0,radiusMax: 7.0,renderLayer: 'near', fallMult: 1.15 },
+      dust:     { ratio: 0.14, scaleMin: 0.20, scaleMax: 0.35, radiusMin: 10, radiusMax: 20, renderLayer: 'far',  fallMult: 0.7  },
+      veryFar:  { ratio: 0.19, scaleMin: 0.28, scaleMax: 0.45, radiusMin: 8,  radiusMax: 16, renderLayer: 'far',  fallMult: 0.8  },
+      far:      { ratio: 0.19, scaleMin: 0.33, scaleMax: 0.52, radiusMin: 6,  radiusMax: 12, renderLayer: 'far',  fallMult: 0.9  },
+      midFar:   { ratio: 0.18, scaleMin: 0.40, scaleMax: 0.60, radiusMin: 5,  radiusMax: 10, renderLayer: 'far',  fallMult: 1.0  },
+      mid:      { ratio: 0.12, scaleMin: 0.48, scaleMax: 0.72, radiusMin: 6,  radiusMax: 12, renderLayer: 'mid',  fallMult: 1.0  },
+      midNear:  { ratio: 0.08, scaleMin: 0.55, scaleMax: 0.78, radiusMin: 5,  radiusMax: 9,  renderLayer: 'mid',  fallMult: 1.05 },
+      near:     { ratio: 0.06, scaleMin: 0.60, scaleMax: 0.82, radiusMin: 5,  radiusMax: 8,  renderLayer: 'near', fallMult: 1.1  },
+      veryNear: { ratio: 0.04, scaleMin: 0.75, scaleMax: 0.98, radiusMin: 4.0,radiusMax: 7.0,renderLayer: 'near', fallMult: 1.15 },
     };
 
     // InstancedMesh 按渲染层分组：renderMeshes[renderLayer][matIndex]
@@ -377,6 +377,8 @@ class PetalParticleSystem {
     const total = this.petalTexturePaths.length;
     this.petalTexturePaths.forEach((path) => {
       const texture = this.textureLoader.load(path, () => {
+        // 纹理加载完成后，对 alpha 边缘做轻量羽化
+        this._softenEdgeAlpha(texture);
         loadedCount++;
         if (loadedCount === total) this._onAllTexturesLoaded();
       }, undefined, () => {
@@ -403,11 +405,71 @@ class PetalParticleSystem {
       // 远景材质（BasicMaterial，纯贴图，同样移除 alphaTest）
       const farMat = new THREE.MeshBasicMaterial({
         map: texture, side: THREE.DoubleSide, transparent: true,
-        opacity: 0.9, depthWrite: false,
+        opacity: 1.0, depthWrite: false,
         premultipliedAlpha: true,
       });
       this.farPetalMaterials.push(farMat);
     });
+  }
+
+  /**
+   * 轻量 alpha 边缘羽化：只对纹理 alpha 通道的边缘像素做 3×3 高斯平滑
+   * 花瓣内部纹理和颜色完全不受影响，仅让 0↔255 的硬切变成 2-3px 的渐变
+   */
+  _softenEdgeAlpha(texture) {
+    const img = texture.image;
+    if (!img || !img.width) return;
+    const w = img.width, h = img.height;
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const data = imageData.data;
+
+    // 提取原始 alpha 通道
+    const origAlpha = new Uint8Array(w * h);
+    for (let i = 0; i < w * h; i++) origAlpha[i] = data[i * 4 + 3];
+
+    // 3×3 高斯核, sum=16
+    const kernel = [1, 2, 1, 2, 4, 2, 1, 2, 1];
+
+    // 做 2 轮平滑，让羽化范围稍大一些（约 3-4px 过渡）
+    for (let pass = 0; pass < 2; pass++) {
+      // 每轮用最新的 alpha 做源
+      const srcAlpha = pass === 0 ? origAlpha : new Uint8Array(w * h);
+      if (pass > 0) {
+        for (let i = 0; i < w * h; i++) srcAlpha[i] = data[i * 4 + 3];
+      }
+
+      for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+          const a = srcAlpha[y * w + x];
+          // 只处理边缘像素：自身与相邻像素有明显 alpha 差异
+          let isEdge = false;
+          for (let ky = -1; ky <= 1 && !isEdge; ky++) {
+            for (let kx = -1; kx <= 1 && !isEdge; kx++) {
+              if (ky === 0 && kx === 0) continue;
+              const na = srcAlpha[(y + ky) * w + (x + kx)];
+              if (Math.abs(na - a) > 40) isEdge = true;
+            }
+          }
+          if (!isEdge) continue;
+
+          let sum = 0, ki = 0;
+          for (let ky = -1; ky <= 1; ky++) {
+            for (let kx = -1; kx <= 1; kx++) {
+              sum += srcAlpha[(y + ky) * w + (x + kx)] * kernel[ki++];
+            }
+          }
+          data[(y * w + x) * 4 + 3] = (sum + 8) >> 4;
+        }
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+    texture.image = canvas;
+    texture.needsUpdate = true;
   }
 
   _onAllTexturesLoaded() {
@@ -418,6 +480,13 @@ class PetalParticleSystem {
 
   _createInstancedMeshes(totalCount) {
     this._cleanupMeshes();
+
+    // 清空 2D 显示层，防止旧帧残留
+    for (const layer of Object.values(this.displayLayers)) {
+      if (layer && layer.ctx) {
+        layer.ctx.clearRect(0, 0, layer.canvas.width, layer.canvas.height);
+      }
+    }
 
     // 计算每个渲染层需要多少实例
     const layerCounts = { far: 0, mid: 0, near: 0 };
@@ -546,8 +615,10 @@ class PetalParticleSystem {
     let dx, dy, dz;
     if (Math.random() < coneProbability) {
       // 视线前方锥体采样：以 camera forward + 微上偏 为中心
-      // 上偏减小到 0.2（~11°），确保水平视角时锥体中心接近视线方向
-      const upBias = 0.2;
+      // 动态上偏：俯视时保留上偏（花瓣在上方），平视/仰视时取消上偏
+      // fwdY < 0 表示相机朝下看（俯视），fwdY ≈ 0 表示平视
+      const lookDownFactor = Math.max(0, -fwdY); // 0(平视)~1(俯视)
+      const upBias = 0.2 * lookDownFactor;
       let coneX = fwdX, coneY = fwdY + upBias, coneZ = fwdZ;
       const coneLen = Math.sqrt(coneX * coneX + coneY * coneY + coneZ * coneZ);
       coneX /= coneLen; coneY /= coneLen; coneZ /= coneLen;
@@ -845,7 +916,7 @@ class PetalParticleSystem {
     // FOV 60° → 半角 30°，加 35° 余量 = 65°，cos(65°) ≈ 0.42
     // 远近景统一阈值，确保水平视角能看到充足的远景花瓣
     const cosThresholdNear = 0.42;  // ~65° 宽松
-    const cosThresholdFar  = 0.42;  // ~65° 统一（远景也需要足够数量）
+    const cosThresholdFar  = 0.30;  // ~72.5° 远景更宽松，增加远景数量
     const collisionActive = this.bodyCollision && this.bodyCollision.isActive;
     const screenW = window.innerWidth, screenH = window.innerHeight;
     const projCamera = this.camera;

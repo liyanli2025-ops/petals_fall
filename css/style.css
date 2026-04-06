@@ -281,13 +281,15 @@ html, body {
 /* 远景花瓣：z-index 1，在人物后面，柔焦模糊（景深远景） */
 .layer-far {
   z-index: 1;
-  filter: blur(2.5px);
-  -webkit-filter: blur(2.5px);
+  filter: blur(1.5px);
+  -webkit-filter: blur(1.5px);
 }
 
-/* 中景花瓣：z-index 3，在人物前面，清晰 */
+/* 中景花瓣：z-index 3，在人物前面，轻微柔焦融合边缘 */
 .layer-mid {
   z-index: 3;
+  filter: blur(1px);
+  -webkit-filter: blur(1px);
 }
 
 /* 人物遮罩层：z-index 2（与远景同级，在中景和近景后面） */

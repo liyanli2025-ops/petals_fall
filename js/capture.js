@@ -42,6 +42,24 @@ class CaptureManager {
     this._historyWriteIndex = 0;        // 当前写入位置
     this._historyFilled = 0;            // 已填充的帧数
     this._motionBlurInited = false;
+
+    // === 中景花瓣边缘修复（defringe）===
+    // 拍照/录像合成时对 mid 层做边缘 RGB 修复，消除抠图深色边
+    this._defringeCanvas = null;
+    this._defringeCtx = null;
+  }
+
+  /** 重置运动模糊历史帧缓存（密度变化时调用，防止旧帧残留） */
+  resetMotionBlurHistory() {
+    this._historyFilled = 0;
+    this._historyWriteIndex = 0;
+    if (this._petalHistoryBuffers) {
+      for (const buf of this._petalHistoryBuffers) {
+        if (buf && buf.ctx) {
+          buf.ctx.clearRect(0, 0, buf.canvas.width, buf.canvas.height);
+        }
+      }
+    }
   }
 
   init() {
@@ -121,6 +139,143 @@ class CaptureManager {
   }
 
   /**
+   * 对中景花瓣层做边缘 RGB 修复（Defringe）
+   * 
+   * 原理：花瓣素材抠图时，半透明边缘像素混入了深色背景 RGB，
+   * 导致渲染时出现一圈深色边。
+   * 
+   * 处理方式：找到边缘像素（alpha 在 10~240 且有透明邻居），
+   * 用其内侧不透明邻居的平均 RGB 替换，alpha 保持不变。
+   * 等价于 Photoshop 的「去边 / Defringe」。
+   * 
+   * 只在成像合成时调用，不影响实时预览。
+   * 
+   * @param {HTMLCanvasElement} sourceCanvas - 中景花瓣层 canvas
+   * @param {number} targetW - 目标绘制宽度
+   * @param {number} targetH - 目标绘制高度
+   * @returns {HTMLCanvasElement} 处理后的 canvas
+   */
+  _defringeMid(sourceCanvas, targetW, targetH) {
+    if (!sourceCanvas || sourceCanvas.width === 0 || sourceCanvas.height === 0) {
+      return sourceCanvas;
+    }
+
+    // 懒初始化离屏 canvas
+    if (!this._defringeCanvas) {
+      this._defringeCanvas = document.createElement('canvas');
+      this._defringeCtx = this._defringeCanvas.getContext('2d', { willReadFrequently: true });
+    }
+
+    const w = sourceCanvas.width;
+    const h = sourceCanvas.height;
+
+    // 尺寸变化时重新设置
+    if (this._defringeCanvas.width !== w || this._defringeCanvas.height !== h) {
+      this._defringeCanvas.width = w;
+      this._defringeCanvas.height = h;
+    }
+
+    const ctx = this._defringeCtx;
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(sourceCanvas, 0, 0);
+
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const data = imageData.data;
+    const totalPixels = w * h;
+
+    // 第一步：标记边缘像素（alpha 在阈值范围内，且 3×3 邻域有透明像素）
+    // 使用两级阈值：
+    //   - 内部像素：alpha > 200（用作 RGB 参考源）
+    //   - 边缘像素：alpha 在 1~240，且邻域有 alpha < 10 的透明像素
+    const ALPHA_OPAQUE = 200;   // 内部不透明阈值
+    const ALPHA_TRANSPARENT = 10; // 外部透明阈值
+
+    // 做 2 轮扩展修复（从内向外逐步修正）
+    for (let pass = 0; pass < 2; pass++) {
+      // 每轮重新读取当前像素状态
+      const curData = pass === 0 ? data : ctx.getImageData(0, 0, w, h).data;
+      const newR = new Uint8Array(totalPixels);
+      const newG = new Uint8Array(totalPixels);
+      const newB = new Uint8Array(totalPixels);
+      let modified = false;
+
+      // 复制当前 RGB
+      for (let i = 0; i < totalPixels; i++) {
+        newR[i] = curData[i * 4];
+        newG[i] = curData[i * 4 + 1];
+        newB[i] = curData[i * 4 + 2];
+      }
+
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const idx = y * w + x;
+          const alpha = curData[idx * 4 + 3];
+
+          // 跳过完全透明和完全不透明的像素
+          if (alpha < 1 || alpha > ALPHA_OPAQUE) continue;
+
+          // 检查是否为边缘像素：邻域中有透明像素
+          let hasTransparentNeighbor = false;
+          // 扩大到 5×5 搜索范围（第二轮更积极）
+          const searchR = pass === 0 ? 2 : 3;
+          for (let ky = -searchR; ky <= searchR && !hasTransparentNeighbor; ky++) {
+            for (let kx = -searchR; kx <= searchR && !hasTransparentNeighbor; kx++) {
+              if (kx === 0 && ky === 0) continue;
+              const nx = x + kx, ny = y + ky;
+              if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+                if (curData[(ny * w + nx) * 4 + 3] < ALPHA_TRANSPARENT) {
+                  hasTransparentNeighbor = true;
+                }
+              }
+            }
+          }
+
+          if (!hasTransparentNeighbor) continue;
+
+          // 这是边缘像素 — 收集邻域内不透明像素的 RGB 平均值
+          let sumR = 0, sumG = 0, sumB = 0, count = 0;
+          // 搜索 5×5 邻域中的内部像素
+          for (let ky = -2; ky <= 2; ky++) {
+            for (let kx = -2; kx <= 2; kx++) {
+              const nx = x + kx, ny = y + ky;
+              if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+                const nIdx = ny * w + nx;
+                if (curData[nIdx * 4 + 3] > ALPHA_OPAQUE) {
+                  sumR += curData[nIdx * 4];
+                  sumG += curData[nIdx * 4 + 1];
+                  sumB += curData[nIdx * 4 + 2];
+                  count++;
+                }
+              }
+            }
+          }
+
+          if (count > 0) {
+            // 用内部像素的平均 RGB 替换边缘像素的 RGB
+            newR[idx] = Math.round(sumR / count);
+            newG[idx] = Math.round(sumG / count);
+            newB[idx] = Math.round(sumB / count);
+            modified = true;
+          }
+        }
+      }
+
+      if (modified) {
+        // 将修正后的 RGB 写回（alpha 保持不变）
+        for (let i = 0; i < totalPixels; i++) {
+          data[i * 4] = newR[i];
+          data[i * 4 + 1] = newG[i];
+          data[i * 4 + 2] = newB[i];
+          // data[i * 4 + 3] 保持不变
+        }
+        ctx.putImageData(imageData, 0, 0);
+      }
+    }
+
+    return this._defringeCanvas;
+  }
+
+  /**
    * 将所有可见层合成到离屏 canvas（含运动模糊）
    */
   _composite() {
@@ -181,9 +336,10 @@ class CaptureManager {
         ctx.restore();
       }
 
-      // 3. 中景花瓣层
+      // 3. 中景花瓣层（边缘 RGB 修复）
       if (this.canvasMid.width > 0) {
-        ctx.drawImage(this.canvasMid, 0, 0, w, h);
+        const defringedMid = this._defringeMid(this.canvasMid, w, h);
+        ctx.drawImage(defringedMid, 0, 0, w, h);
       }
 
       // 5. 近景花瓣层
@@ -214,9 +370,10 @@ class CaptureManager {
       tmpCtx.restore();
     }
 
-    // 3. 中景花瓣层（清晰，不加任何模糊，与 CSS .layer-mid 一致）
+    // 3. 中景花瓣层（清晰 + 边缘 RGB 修复）
     if (this.canvasMid.width > 0) {
-      tmpCtx.drawImage(this.canvasMid, 0, 0, w, h);
+      const defringedMid = this._defringeMid(this.canvasMid, w, h);
+      tmpCtx.drawImage(defringedMid, 0, 0, w, h);
     }
 
     // 4. 人物遮罩层 — 录制合成时跳过！
@@ -285,7 +442,8 @@ class CaptureManager {
         tmpCtx.restore();
       }
       if (this.canvasMid.width > 0) {
-        tmpCtx.drawImage(this.canvasMid, 0, 0, w, h);
+        const defringedMid = this._defringeMid(this.canvasMid, w, h);
+        this._drawBlurred(tmpCtx, defringedMid, w, h, 1 * compositeDPR);
       }
       if (this.canvasNear.width > 0) {
         tmpCtx.save();
