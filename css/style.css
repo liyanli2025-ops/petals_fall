@@ -239,13 +239,13 @@ html, body {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  z-index: 1;
+  z-index: 0;
 }
 
 .fallback-bg {
   position: absolute;
   inset: 0;
-  z-index: 1;
+  z-index: 0;
   background: linear-gradient(180deg, 
     #1a0a2e 0%, 
     #2d1b4e 25%, 
@@ -278,11 +278,11 @@ html, body {
   pointer-events: none;
 }
 
-/* 远景花瓣：z-index 1，在人物后面，轻微模糊 */
+/* 远景花瓣：z-index 1，在人物后面，柔焦模糊（景深远景） */
 .layer-far {
   z-index: 1;
-  filter: blur(1px);
-  -webkit-filter: blur(1px);
+  filter: blur(2.5px);
+  -webkit-filter: blur(2.5px);
 }
 
 /* 中景花瓣：z-index 3，在人物前面，清晰 */

@@ -985,3 +985,85 @@ setTimeout(tryPlay, 1500);                          // 6. 延迟 1.5s
 ```
 
 `startCamera` 额外增加 **2 秒超时保底**，防止 Promise 永远不 resolve 导致初始化卡死。
+
+---
+
+## 十二、视锥体外花瓣回收优化（2026-04-06）
+
+### 1. 问题现象
+
+花瓣大量聚集在用户"脚下"（相机下方），可见区域（视线前方）的花瓣密度不足，视觉效果稀疏。
+
+### 2. 根因分析
+
+| 因素 | 说明 |
+|------|------|
+| **重力持续下拉** | 每帧 `p.py -= fallSpeed * dragFactor * delta`，花瓣净效果是持续往下飘 |
+| **回收只看距离** | `recycleDistSq = (worldRadius + 5)²`，花瓣离相机 40 单位才回收 |
+| **重生范围小** | 花瓣从相机上方小范围半球重生，很快就飘到下方 |
+| **脚下花瓣不可见但占名额** | 用户手机朝前/朝上拍摄，脚下花瓣完全在视野外，却不被回收 |
+
+核心矛盾：**3000 颗花瓣的"名额"大量浪费在用户看不到的区域**。
+
+### 3. 解决方案——基于相机视线角度的智能回收
+
+每帧计算花瓣与相机视线方向的夹角，超出视锥体的花瓣快速回收、从上方重新生成。
+
+```
+              视锥体 (FOV 60°)
+             ╱‾‾‾‾‾‾‾‾╲
+            ╱  可见区域  ╲
+──── 相机 ·──────────────── → 视线方向
+            ╲  可见区域  ╲
+             ╲__________╱
+                    ↓
+          超出阈值角度 → 回收重生
+```
+
+### 4. 实现细节
+
+**Step 1：每帧获取相机前方向量（只算一次）**
+
+```javascript
+if (!this._camForward) this._camForward = new THREE.Vector3();
+this.camera.getWorldDirection(this._camForward);
+const fwdX = this._camForward.x, fwdY = this._camForward.y, fwdZ = this._camForward.z;
+```
+
+**Step 2：分层角度阈值**
+
+```javascript
+const cosThresholdNear = 0.42;  // ~65° 近景宽松（用户转头时不突然消失）
+const cosThresholdFar  = 0.57;  // ~55° 远景严格（反正看不清）
+```
+
+**Step 3：花瓣循环中做角度判定**
+
+```javascript
+const cosAngle = (dx * fwdX + dy * fwdY + dz * fwdZ) / distToCam;
+const threshold = isFarLayer ? cosThresholdFar : cosThresholdNear;
+
+if (cosAngle < 0) {
+  // 相机背后 → 直接回收
+  this._recyclePetalData(p);
+} else if (cosAngle < threshold && distToCam > recycleDist) {
+  // 视锥外 + 足够远 → 回收
+  this._recyclePetalData(p);
+}
+```
+
+### 5. 分层策略
+
+| 层级 | 角度阈值 | 距离门槛 | 理由 |
+|------|---------|---------|------|
+| 远景（far） | 55°（cos 0.57） | 5 单位 | 远景花瓣小、看不清，严格回收 |
+| 中近景（mid/near） | 65°（cos 0.42） | 8 单位 | 近景花瓣大，用户转头可能看到，给更多宽容 |
+| 相机背后 | 任何角度 > 90° | 1.5 单位 | 完全不可见，直接回收 |
+| 极近距离 | 不判定 | < 1.5 | 刚生成的花瓣不误伤 |
+
+### 6. 效果
+
+- **可见区域花瓣密度显著提升**：脚下/背后的"浪费名额"被快速回收、从视线前方上半球重新生成
+- **无视觉跳变**：近景花瓣有宽松阈值 + 距离门槛，用户正常转头时边缘花瓣不会突然消失
+- **性能零开销**：每帧只多一次 `getWorldDirection()` + 每颗花瓣一次点积运算（纯数学，无分配）
+- **水平远方花瓣完全保留**：角度判定是相对于相机朝向，沿视线看远方的花瓣 cosAngle ≈ 1.0，远超阈值

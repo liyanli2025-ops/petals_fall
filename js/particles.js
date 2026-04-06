@@ -44,16 +44,16 @@ class PetalParticleSystem {
     this.ready = false;
 
     // 8 个逻辑层，映射到 3 个渲染层
-    // 减少远景碎片比例，增加中近景可辨认花瓣
+    // 远景朦胧层加厚（70%），近景层精简（30%），减少遮挡
     this.layerConfig = {
-      dust:     { ratio: 0.08, scaleMin: 0.08, scaleMax: 0.15, radiusMin: 16, radiusMax: 25, renderLayer: 'far',  fallMult: 0.7  },
-      veryFar:  { ratio: 0.12, scaleMin: 0.15, scaleMax: 0.25, radiusMin: 12, radiusMax: 18, renderLayer: 'far',  fallMult: 0.8  },
-      far:      { ratio: 0.14, scaleMin: 0.22, scaleMax: 0.40, radiusMin: 8,  radiusMax: 13, renderLayer: 'far',  fallMult: 0.9  },
-      midFar:   { ratio: 0.14, scaleMin: 0.35, scaleMax: 0.55, radiusMin: 6,  radiusMax: 12, renderLayer: 'far',  fallMult: 1.0  },
-      mid:      { ratio: 0.16, scaleMin: 0.45, scaleMax: 0.70, radiusMin: 4,  radiusMax: 9,  renderLayer: 'mid',  fallMult: 1.0  },
-      midNear:  { ratio: 0.12, scaleMin: 0.55, scaleMax: 0.80, radiusMin: 3,  radiusMax: 6,  renderLayer: 'mid',  fallMult: 1.05 },
-      near:     { ratio: 0.14, scaleMin: 0.60, scaleMax: 0.90, radiusMin: 2,  radiusMax: 5,  renderLayer: 'near', fallMult: 1.1  },
-      veryNear: { ratio: 0.10, scaleMin: 0.85, scaleMax: 1.30, radiusMin: 1.2,radiusMax: 3.0,renderLayer: 'near', fallMult: 1.15 },
+      dust:     { ratio: 0.14, scaleMin: 0.15, scaleMax: 0.25, radiusMin: 10, radiusMax: 18, renderLayer: 'far',  fallMult: 0.7  },
+      veryFar:  { ratio: 0.19, scaleMin: 0.22, scaleMax: 0.38, radiusMin: 8,  radiusMax: 14, renderLayer: 'far',  fallMult: 0.8  },
+      far:      { ratio: 0.19, scaleMin: 0.30, scaleMax: 0.48, radiusMin: 6,  radiusMax: 11, renderLayer: 'far',  fallMult: 0.9  },
+      midFar:   { ratio: 0.18, scaleMin: 0.38, scaleMax: 0.58, radiusMin: 5,  radiusMax: 10, renderLayer: 'far',  fallMult: 1.0  },
+      mid:      { ratio: 0.12, scaleMin: 0.45, scaleMax: 0.65, radiusMin: 6,  radiusMax: 12, renderLayer: 'mid',  fallMult: 1.0  },
+      midNear:  { ratio: 0.08, scaleMin: 0.50, scaleMax: 0.70, radiusMin: 5,  radiusMax: 9,  renderLayer: 'mid',  fallMult: 1.05 },
+      near:     { ratio: 0.06, scaleMin: 0.55, scaleMax: 0.75, radiusMin: 5,  radiusMax: 8,  renderLayer: 'near', fallMult: 1.1  },
+      veryNear: { ratio: 0.04, scaleMin: 0.70, scaleMax: 0.90, radiusMin: 4.0,radiusMax: 7.0,renderLayer: 'near', fallMult: 1.15 },
     };
 
     // InstancedMesh 按渲染层分组：renderMeshes[renderLayer][matIndex]
@@ -487,12 +487,13 @@ class PetalParticleSystem {
         pz = cosTheta * r;
       }
     } else {
-      // recycle 时也用球形分布，偏向上半球（保证持续有花瓣从上方落入）
+      // recycle 时用全球均匀分布 + 立方根半径
       const phi = Math.random() * Math.PI * 2;
-      // cosTheta 范围 [0, 1]，即上半球
-      const cosTheta = Math.random();
+      const cosTheta = 2 * Math.random() - 1; // [-1,1] 全球
       const sinTheta = Math.sqrt(1 - cosTheta * cosTheta);
-      const r = (0.5 + Math.random() * 0.5) * radius;
+      const rMin = 0.5 * radius, rMax = radius;
+      const r3Min = rMin * rMin * rMin, r3Max = rMax * rMax * rMax;
+      const r = Math.cbrt(r3Min + Math.random() * (r3Max - r3Min));
       px = this.cameraWorldPos.x + sinTheta * Math.cos(phi) * r;
       py = this.cameraWorldPos.y + cosTheta * r;
       pz = this.cameraWorldPos.z + sinTheta * Math.sin(phi) * r;
@@ -532,14 +533,65 @@ class PetalParticleSystem {
   _recyclePetalData(petal) {
     const cfg = this.layerConfig[petal.layerKey];
     const radius = cfg.radiusMin + Math.random() * (cfg.radiusMax - cfg.radiusMin);
-    // 球形上半球分布，花瓣从各个方向生成后往下飘落
-    const phi = Math.random() * Math.PI * 2;
-    const cosTheta = Math.random(); // [0,1] 上半球
-    const sinTheta = Math.sqrt(1 - cosTheta * cosTheta);
-    const r = (0.5 + Math.random() * 0.5) * radius;
-    petal.px = this.cameraWorldPos.x + sinTheta * Math.cos(phi) * r;
-    petal.py = this.cameraWorldPos.y + cosTheta * r;
-    petal.pz = this.cameraWorldPos.z + sinTheta * Math.sin(phi) * r;
+    // 偏向相机视线前上方的重生分布
+    // 1) 获取相机前方向量（每帧已在 update 中计算，复用 _camForward）
+    let fwdX = 0, fwdY = 0, fwdZ = -1;
+    if (this._camForward) {
+      fwdX = this._camForward.x; fwdY = this._camForward.y; fwdZ = this._camForward.z;
+    }
+    // 2) 构造偏向视线前方的采样方向（不限制上半球！）
+    //    近景层降低锥体概率，避免大花瓣扎堆在视野正中央
+    const isNearLayer = (petal.layerKey === 'near' || petal.layerKey === 'veryNear');
+    const coneProbability = isNearLayer ? 0.35 : 0.65;
+    let dx, dy, dz;
+    if (Math.random() < coneProbability) {
+      // 视线前方锥体采样：以 camera forward + 微上偏 为中心
+      // 上偏减小到 0.2（~11°），确保水平视角时锥体中心接近视线方向
+      const upBias = 0.2;
+      let coneX = fwdX, coneY = fwdY + upBias, coneZ = fwdZ;
+      const coneLen = Math.sqrt(coneX * coneX + coneY * coneY + coneZ * coneZ);
+      coneX /= coneLen; coneY /= coneLen; coneZ /= coneLen;
+      // 锥体半角扩大到 70°（覆盖更广视野 + 边缘）
+      const coneHalfAngle = 1.22; // ~70° in radians
+      const u = Math.random();
+      const cosA = 1 - u * (1 - Math.cos(coneHalfAngle));
+      const sinA = Math.sqrt(1 - cosA * cosA);
+      const phiC = Math.random() * Math.PI * 2;
+      // 构造以 cone 方向为轴的坐标系
+      let tmpX = 0, tmpY = 1, tmpZ = 0;
+      if (Math.abs(coneY) > 0.9) { tmpX = 1; tmpY = 0; tmpZ = 0; }
+      let tX = coneY * tmpZ - coneZ * tmpY;
+      let tY = coneZ * tmpX - coneX * tmpZ;
+      let tZ = coneX * tmpY - coneY * tmpX;
+      const tLen = Math.sqrt(tX * tX + tY * tY + tZ * tZ);
+      tX /= tLen; tY /= tLen; tZ /= tLen;
+      const bX = coneY * tZ - coneZ * tY;
+      const bY = coneZ * tX - coneX * tZ;
+      const bZ = coneX * tY - coneY * tX;
+      const sp = Math.sin(phiC), cp = Math.cos(phiC);
+      dx = cosA * coneX + sinA * (cp * tX + sp * bX);
+      dy = cosA * coneY + sinA * (cp * tY + sp * bY);
+      dz = cosA * coneZ + sinA * (cp * tZ + sp * bZ);
+      // 不再强制 dy > 0！允许花瓣出现在视线下方
+    } else {
+      // 剩余概率：全球均匀分布（不限制上半球，四面八方都有花瓣）
+      const phi = Math.random() * Math.PI * 2;
+      const cosTheta = 2 * Math.random() - 1; // [-1,1] 全球
+      const sinTheta = Math.sqrt(1 - cosTheta * cosTheta);
+      dx = sinTheta * Math.cos(phi);
+      dy = cosTheta;
+      dz = sinTheta * Math.sin(phi);
+    }
+    // 3) 立方根半径采样：体积均匀分布，远处球壳获得更多花瓣
+    const rMin = 0.5 * radius;
+    const rMax = radius;
+    // 在 [rMin³, rMax³] 之间均匀采样，再开立方根
+    const r3Min = rMin * rMin * rMin;
+    const r3Max = rMax * rMax * rMax;
+    const r = Math.cbrt(r3Min + Math.random() * (r3Max - r3Min));
+    petal.px = this.cameraWorldPos.x + dx * r;
+    petal.py = this.cameraWorldPos.y + dy * r;
+    petal.pz = this.cameraWorldPos.z + dz * r;
     petal.rx = Math.random() * Math.PI * 2; petal.ry = Math.random() * Math.PI * 2; petal.rz = Math.random() * Math.PI * 2;
     petal.rotSpeedX = (Math.random() - 0.5) * 1.2;
     petal.rotSpeedY = (Math.random() - 0.5) * 1.0;
@@ -790,10 +842,10 @@ class PetalParticleSystem {
     if (!this._camForward) this._camForward = new THREE.Vector3();
     this.camera.getWorldDirection(this._camForward);
     const fwdX = this._camForward.x, fwdY = this._camForward.y, fwdZ = this._camForward.z;
-    // FOV 60° → 半角 30°，加 25° 余量 = 55°，cos(55°) ≈ 0.574
-    // 对远景层更严格：cos(50°) ≈ 0.643
-    const cosThresholdNear = 0.42;  // ~65° 近景宽松（用户可能在转头）
-    const cosThresholdFar  = 0.57;  // ~55° 远景严格（反正看不清）
+    // FOV 60° → 半角 30°，加 35° 余量 = 65°，cos(65°) ≈ 0.42
+    // 远近景统一阈值，确保水平视角能看到充足的远景花瓣
+    const cosThresholdNear = 0.42;  // ~65° 宽松
+    const cosThresholdFar  = 0.42;  // ~65° 统一（远景也需要足够数量）
     const collisionActive = this.bodyCollision && this.bodyCollision.isActive;
     const screenW = window.innerWidth, screenH = window.innerHeight;
     const projCamera = this.camera;
@@ -988,7 +1040,7 @@ class PetalParticleSystem {
           } else {
             // 视野边缘外的花瓣：距离越远越快回收
             // 近处的给机会（用户转头可能看到），远处的直接回收
-            const recycleDist = isFarLayer ? 5 : 8;
+            const recycleDist = isFarLayer ? 12 : 8;
             if (distToCam > recycleDist) {
               this._recyclePetalData(p);
             }

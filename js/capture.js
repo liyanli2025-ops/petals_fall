@@ -176,7 +176,7 @@ class CaptureManager {
       // 2. 远景花瓣层
       if (this.canvasFar.width > 0) {
         ctx.save();
-        ctx.globalAlpha = 0.75;
+        ctx.globalAlpha = 0.9;
         ctx.drawImage(this.canvasFar, 0, 0, w, h);
         ctx.restore();
       }
@@ -206,17 +206,17 @@ class CaptureManager {
     const tmpCtx = this._petalTempCtx;
     tmpCtx.clearRect(0, 0, w, h);
 
-    // 2. 远景花瓣层（CSS blur(1px) 对应 + 轻微降透）
+    // 2. 远景花瓣层（CSS blur(2.5px) 对应 + 轻微降透）
     if (this.canvasFar.width > 0) {
       tmpCtx.save();
-      tmpCtx.globalAlpha = 0.75;
-      this._drawBlurred(tmpCtx, this.canvasFar, w, h, 1 * compositeDPR);
+      tmpCtx.globalAlpha = 0.9;
+      this._drawBlurred(tmpCtx, this.canvasFar, w, h, 2.5 * compositeDPR);
       tmpCtx.restore();
     }
 
-    // 3. 中景花瓣层（加微模糊消除锯齿）
+    // 3. 中景花瓣层（清晰，不加任何模糊，与 CSS .layer-mid 一致）
     if (this.canvasMid.width > 0) {
-      this._drawBlurred(tmpCtx, this.canvasMid, w, h, 0.8 * compositeDPR);
+      tmpCtx.drawImage(this.canvasMid, 0, 0, w, h);
     }
 
     // 4. 人物遮罩层 — 录制合成时跳过！
@@ -280,17 +280,17 @@ class CaptureManager {
 
       if (this.canvasFar.width > 0) {
         tmpCtx.save();
-        tmpCtx.globalAlpha = 0.75;
-        this._drawBlurred(tmpCtx, this.canvasFar, w, h, 1 * compositeDPR);
+        tmpCtx.globalAlpha = 0.9;
+        this._drawBlurred(tmpCtx, this.canvasFar, w, h, 2.5 * compositeDPR);
         tmpCtx.restore();
       }
       if (this.canvasMid.width > 0) {
-        this._drawBlurred(tmpCtx, this.canvasMid, w, h, 0.8 * compositeDPR);
+        tmpCtx.drawImage(this.canvasMid, 0, 0, w, h);
       }
       if (this.canvasNear.width > 0) {
         tmpCtx.save();
         tmpCtx.globalAlpha = 0.55;
-        this._drawBlurred(tmpCtx, this.canvasNear, w, h, 4 * compositeDPR);
+        this._drawBlurred(tmpCtx, this.canvasNear, w, h, 5 * compositeDPR);
         tmpCtx.restore();
       }
       const writeBuf = this._petalHistoryBuffers[this._historyWriteIndex];
