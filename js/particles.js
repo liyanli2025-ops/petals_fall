@@ -46,14 +46,14 @@ class PetalParticleSystem {
     // 8 个逻辑层，映射到 3 个渲染层
     // 远景朦胧层加厚（70%），近景层精简（30%），减少遮挡
     this.layerConfig = {
-      dust:     { ratio: 0.14, scaleMin: 0.20, scaleMax: 0.35, radiusMin: 10, radiusMax: 20, renderLayer: 'far',  fallMult: 0.7  },
-      veryFar:  { ratio: 0.19, scaleMin: 0.28, scaleMax: 0.45, radiusMin: 8,  radiusMax: 16, renderLayer: 'far',  fallMult: 0.8  },
-      far:      { ratio: 0.19, scaleMin: 0.33, scaleMax: 0.52, radiusMin: 6,  radiusMax: 12, renderLayer: 'far',  fallMult: 0.9  },
-      midFar:   { ratio: 0.18, scaleMin: 0.40, scaleMax: 0.60, radiusMin: 5,  radiusMax: 10, renderLayer: 'far',  fallMult: 1.0  },
-      mid:      { ratio: 0.12, scaleMin: 0.48, scaleMax: 0.72, radiusMin: 6,  radiusMax: 12, renderLayer: 'mid',  fallMult: 1.0  },
-      midNear:  { ratio: 0.08, scaleMin: 0.55, scaleMax: 0.78, radiusMin: 5,  radiusMax: 9,  renderLayer: 'mid',  fallMult: 1.05 },
-      near:     { ratio: 0.06, scaleMin: 0.60, scaleMax: 0.82, radiusMin: 5,  radiusMax: 8,  renderLayer: 'near', fallMult: 1.1  },
-      veryNear: { ratio: 0.04, scaleMin: 0.75, scaleMax: 0.98, radiusMin: 4.0,radiusMax: 7.0,renderLayer: 'near', fallMult: 1.15 },
+      dust:     { ratio: 0.14, scaleMin: 0.20, scaleMax: 0.35, radiusMin: 6,  radiusMax: 14, renderLayer: 'far',  fallMult: 0.7  },
+      veryFar:  { ratio: 0.19, scaleMin: 0.28, scaleMax: 0.45, radiusMin: 5,  radiusMax: 12, renderLayer: 'far',  fallMult: 0.8  },
+      far:      { ratio: 0.19, scaleMin: 0.33, scaleMax: 0.52, radiusMin: 4,  radiusMax: 10, renderLayer: 'far',  fallMult: 0.9  },
+      midFar:   { ratio: 0.18, scaleMin: 0.40, scaleMax: 0.60, radiusMin: 4,  radiusMax: 9,  renderLayer: 'far',  fallMult: 1.0  },
+      mid:      { ratio: 0.12, scaleMin: 0.48, scaleMax: 0.72, radiusMin: 4,  radiusMax: 10, renderLayer: 'mid',  fallMult: 1.0  },
+      midNear:  { ratio: 0.08, scaleMin: 0.55, scaleMax: 0.78, radiusMin: 3,  radiusMax: 8,  renderLayer: 'mid',  fallMult: 1.05 },
+      near:     { ratio: 0.06, scaleMin: 0.60, scaleMax: 0.82, radiusMin: 3,  radiusMax: 7,  renderLayer: 'near', fallMult: 1.1  },
+      veryNear: { ratio: 0.04, scaleMin: 0.75, scaleMax: 0.98, radiusMin: 2.5,radiusMax: 6.0,renderLayer: 'near', fallMult: 1.15 },
     };
 
     // InstancedMesh 按渲染层分组：renderMeshes[renderLayer][matIndex]
@@ -682,6 +682,37 @@ class PetalParticleSystem {
   }
 
   /**
+   * 触发"风起"效果 — 视野范围内的强横风
+   * 风向基于相机右方向量（在画面中是横向吹），渐入渐出，持续约 4~6 秒
+   */
+  triggerWindGust() {
+    // 获取相机右方向量和前方向量（世界坐标）
+    if (!this._camRight) this._camRight = new THREE.Vector3();
+    if (!this._camForward) this._camForward = new THREE.Vector3();
+    this.camera.getWorldDirection(this._camForward);
+    // 相机右方向 = forward × worldUp
+    this._camRight.crossVectors(this._camForward, new THREE.Vector3(0, 1, 0)).normalize();
+
+    const sign = Math.random() > 0.5 ? 1 : -1; // 随机偏左或偏右
+    // 风的世界坐标方向：主要沿相机右方 + 少量前方分量
+    const rightX = this._camRight.x, rightZ = this._camRight.z;
+    const fwdX = this._camForward.x, fwdZ = this._camForward.z;
+    const windDirX = sign * rightX * 1.0 + fwdX * 0.2;
+    const windDirZ = sign * rightZ * 1.0 + fwdZ * 0.2;
+
+    this._userGust = {
+      active: true,
+      elapsed: 0,
+      duration: 3.5 + Math.random() * 2.0,  // 3.5~5.5 秒
+      peakStrength: 4.0 + Math.random() * 2.0, // 强度 4.0~6.0
+      // 风的世界坐标方向分量（基于相机朝向）
+      windDirX: windDirX,
+      windDirZ: windDirZ,
+      windSign: sign,
+    };
+  }
+
+  /**
    * 生成涡流（由人物大动作触发）
    * @param {number} screenNX - 人物中心屏幕归一化 X (0~1)
    * @param {number} screenNY - 人物中心屏幕归一化 Y (0~1)
@@ -876,6 +907,7 @@ class PetalParticleSystem {
     if (this.gust.active) { this.gust.strength *= 0.96; if (this.gust.strength < 0.1) this.gust.active = false; }
     const gustX = this.gust.active ? Math.cos(this.gust.direction) * this.gust.strength : 0;
     const gustZ = this.gust.active ? Math.sin(this.gust.direction) * this.gust.strength : 0;
+
     const now = performance.now();
 
     // === 涡流系统 ===
@@ -908,15 +940,42 @@ class PetalParticleSystem {
     const gustActive = this.gust.active;
     const recycleDistSq = (worldRadius + 5) * (worldRadius + 5);
 
-    // === 视锥体外回收：计算相机前方向量 ===
-    // 获取相机世界空间前方向量（每帧只算一次）
+    // === 计算相机前方向量（提前，风起和视锥回收都要用） ===
     if (!this._camForward) this._camForward = new THREE.Vector3();
     this.camera.getWorldDirection(this._camForward);
     const fwdX = this._camForward.x, fwdY = this._camForward.y, fwdZ = this._camForward.z;
-    // FOV 60° → 半角 30°，加 35° 余量 = 65°，cos(65°) ≈ 0.42
-    // 远近景统一阈值，确保水平视角能看到充足的远景花瓣
+
+    // === 用户触发的"风起"效果（视野范围内的定向风） ===
+    let userGustStrength = 0;
+    let userGustDirX = 0, userGustDirZ = 0; // 风的世界方向
+    let userGustCamFwdX = 0, userGustCamFwdY = 0, userGustCamFwdZ = 0; // 相机前方
+    let userGustActive = false;
+    // 上风方向向量（风从这个方向吹来，反方向就是风去的方向）
+    let upwindDirX = 0, upwindDirZ = 0;
+    if (this._userGust && this._userGust.active) {
+      const ug = this._userGust;
+      ug.elapsed += delta;
+      if (ug.elapsed >= ug.duration) {
+        ug.active = false;
+      } else {
+        const t = ug.elapsed / ug.duration;
+        userGustStrength = ug.peakStrength * Math.sin(t * Math.PI);
+        userGustDirX = ug.windDirX;
+        userGustDirZ = ug.windDirZ;
+        // 上风方向 = 风向的反方向（花瓣从上风方向被吹入视野）
+        upwindDirX = -ug.windDirX;
+        upwindDirZ = -ug.windDirZ;
+        // 实时更新相机前方（用户可能在风起期间转头）
+        userGustCamFwdX = fwdX;
+        userGustCamFwdY = fwdY;
+        userGustCamFwdZ = fwdZ;
+        userGustActive = true;
+      }
+    }
+    // FOV 60° → 半角 30°，加余量
+    // 手机竖屏水平视角较窄，远景层需要更宽松的阈值才能看到足够多的朦胧花瓣
     const cosThresholdNear = 0.42;  // ~65° 宽松
-    const cosThresholdFar  = 0.30;  // ~72.5° 远景更宽松，增加远景数量
+    const cosThresholdFar  = 0.10;  // ~84° 远景极宽松，确保远景花瓣充足
     const collisionActive = this.bodyCollision && this.bodyCollision.isActive;
     const screenW = window.innerWidth, screenH = window.innerHeight;
     const projCamera = this.camera;
@@ -983,6 +1042,22 @@ class PetalParticleSystem {
 
         // 受风微扰
         p.px += windX * delta * 0.02;
+
+        // "风起"可以吹走停靠的花瓣（仅视野内）
+        if (userGustActive && userGustStrength > 0.8) {
+          const rdx = p.px - camX, rdy = p.py - camY, rdz = p.pz - camZ;
+          const rDist = Math.sqrt(rdx * rdx + rdy * rdy + rdz * rdz);
+          if (rDist > 0.3) {
+            const rCos = (rdx * userGustCamFwdX + rdy * userGustCamFwdY + rdz * userGustCamFwdZ) / rDist;
+            if (rCos > 0.17) {
+              p.state = 'falling';
+              p.fallSpeed = p.originalFallSpeed * 0.4;
+              p.rotSpeedX = (Math.random() - 0.5) * 2.0;
+              p.rotSpeedY = (Math.random() - 0.5) * 1.5;
+              continue;
+            }
+          }
+        }
 
         // 涡流可以把 resting 的花瓣吹起
         if (hasVortices) {
@@ -1075,6 +1150,50 @@ class PetalParticleSystem {
         p.px += gustX * gr; p.pz += gustZ * gr; p.py += this.gust.strength * 0.02 * gr;
         p.rotSpeedX += gustX * 0.15 * p.gustResponse; p.rotSpeedZ += gustZ * 0.1 * p.gustResponse;
       }
+      // 用户触发的"风起"横风 — 视野内 + 上风方向花瓣受力
+      if (userGustActive) {
+        // 计算花瓣到相机的方向
+        const toCamDx = p.px - camX, toCamDy = p.py - camY, toCamDz = p.pz - camZ;
+        const distToCam = Math.sqrt(toCamDx * toCamDx + toCamDy * toCamDy + toCamDz * toCamDz);
+        if (distToCam > 0.5) {
+          // 花瓣方向与相机前方的 cos 夹角
+          const cosAngle = (toCamDx * userGustCamFwdX + toCamDy * userGustCamFwdY + toCamDz * userGustCamFwdZ) / distToCam;
+
+          // 判断花瓣是否在上风方向（风从那边吹来 → 花瓣应该被吹进视野）
+          // upwindDir 点积花瓣方向 > 0 → 花瓣在上风侧
+          const upwindDot = (toCamDx * upwindDirX + toCamDz * upwindDirZ) / distToCam;
+          const isUpwind = upwindDot > 0.1;
+
+          // 视野内(cosAngle>0.17) 或 上风方向的花瓣都受风力
+          if (cosAngle > 0.17 || isUpwind) {
+            // 视野内：角度衰减
+            let windMult;
+            if (cosAngle > 0.17) {
+              const angleFactor = Math.min(1.0, Math.max(0, (cosAngle - 0.17) / 0.53));
+              windMult = angleFactor * angleFactor * (3.0 - 2.0 * angleFactor);
+            } else {
+              // 视野外但上风方向：给予中等风力（把花瓣吹进来）
+              windMult = 0.5 * Math.min(1.0, upwindDot * 2.0);
+            }
+            // 距离衰减
+            const distFactor = Math.min(1.0, 12.0 / (distToCam + 1.0));
+            windMult *= distFactor;
+            
+            const ugr = p.gustResponse * delta * windMult;
+            // 横向位移（风的主方向）— 主要视觉效果
+            p.px += userGustDirX * userGustStrength * ugr * 1.6;
+            p.pz += userGustDirZ * userGustStrength * ugr * 1.6;
+            // 微弱上扬（轻轻托起，不是往上吹）
+            p.py += userGustStrength * 0.03 * ugr;
+            // 旋转翻转加强（让运动更明显：花瓣在风中翻滚）
+            p.rotSpeedX += userGustDirX * userGustStrength * 0.25 * p.gustResponse * windMult;
+            p.rotSpeedY += userGustStrength * 0.08 * p.gustResponse * (Math.random() - 0.5) * windMult;
+            p.rotSpeedZ += userGustDirZ * userGustStrength * 0.20 * p.gustResponse * windMult;
+            // 风中减慢下落（"上扬"的主要手段：减缓坠落而非推上去）
+            p.fallSpeed = p.originalFallSpeed * Math.max(0.3, 1.0 - userGustStrength * 0.06 * windMult);
+          }
+        }
+      }
       // === 涡流受力（只影响中近景层） ===
       if (hasVortices && (p.layerKey === 'mid' || p.layerKey === 'midNear' || p.layerKey === 'near'
         || p.layerKey === 'midFar' || p.layerKey === 'veryNear')) {
@@ -1111,7 +1230,7 @@ class PetalParticleSystem {
           } else {
             // 视野边缘外的花瓣：距离越远越快回收
             // 近处的给机会（用户转头可能看到），远处的直接回收
-            const recycleDist = isFarLayer ? 12 : 8;
+            const recycleDist = isFarLayer ? 18 : 8;
             if (distToCam > recycleDist) {
               this._recyclePetalData(p);
             }

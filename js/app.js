@@ -65,6 +65,7 @@
   const $btnStart = document.getElementById('btn-start');
   const $btnSwitchCamera = document.getElementById('btn-switch-camera');
   const $btnToggleCamera = document.getElementById('btn-toggle-camera');
+  const $btnWind = document.getElementById('btn-wind');
   const $petalDensity = document.getElementById('petal-density');
   const $fpsCounter = document.getElementById('fps-counter');
   const $debugPanel = document.getElementById('debug-panel');
@@ -326,6 +327,20 @@
       if (particles) particles.setPetalCount(count);
       if (capture) capture.resetMotionBlurHistory();
     });
+
+    // 风起按钮
+    const windHandler = (e) => {
+      e.preventDefault();
+      if (!particles) return;
+      particles.triggerWindGust();
+      // 按钮激活态
+      $btnWind.classList.add('wind-active');
+      // 风效结束后移除激活态（检查 _userGust.duration）
+      const dur = (particles._userGust && particles._userGust.duration) || 4;
+      setTimeout(() => { $btnWind.classList.remove('wind-active'); }, dur * 1000);
+    };
+    $btnWind.addEventListener('click', windHandler);
+    $btnWind.addEventListener('touchend', windHandler);
 
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
