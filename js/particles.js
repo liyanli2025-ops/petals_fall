@@ -22,6 +22,10 @@ class PetalParticleSystem {
       near: { canvas: document.getElementById('canvas-near'), ctx: null },
     };
 
+    // 录像专用：mid+near 合并渲染的离屏 canvas（2-pass 优化）
+    const midNearCanvas = document.createElement('canvas');
+    this.displayLayers.midNear = { canvas: midNearCanvas, ctx: null };
+
     this.petalCount = 3000;
     this.clock = new THREE.Clock();
 
@@ -1216,30 +1220,99 @@ class PetalParticleSystem {
     // 更新 InstancedMesh 矩阵
     this._updateInstanceMatrices();
 
-    // ===== 3-pass 渲染：每 pass 只显示一个渲染层的 mesh =====
+    // ===== 渲染花瓣层 =====
     if (this.renderer) {
       const webglCanvas = this.canvas;
-      for (const renderKey of ['far', 'mid', 'near']) {
-        // 显示/隐藏 mesh
+      const recording = this.captureManager && this.captureManager.isRecording;
+
+      if (recording) {
+        // === 录像时 2-pass 优化：far 单独 + mid&near 合并 ===
+        // Pass 1: 远景层（单独渲染，用于人物遮罩穿插）
         for (const rk of ['far', 'mid', 'near']) {
           const meshes = this.renderMeshes[rk];
           if (!meshes) continue;
-          const vis = (rk === renderKey);
+          const vis = (rk === 'far');
           for (const m of meshes) { if (m) m.visible = vis; }
         }
-        // 显式清除 WebGL buffer，防止残影
         this.renderer.clear();
-        // 渲染当前 pass
         this.renderer.render(this.scene, this.camera);
-        // 立即同步复制到 2D canvas（在浏览器合成前完成读取）
-        const layer = this.displayLayers[renderKey];
-        if (layer && layer.ctx) {
-          const dw = layer.canvas.width, dh = layer.canvas.height;
-          layer.ctx.clearRect(0, 0, dw, dh);
-          // 强制 flush WebGL 确保像素已就绪
+        const layerFar = this.displayLayers['far'];
+        if (layerFar && layerFar.ctx) {
+          const dw = layerFar.canvas.width, dh = layerFar.canvas.height;
+          layerFar.ctx.clearRect(0, 0, dw, dh);
           const gl = this.renderer.getContext();
           if (gl) gl.flush();
-          layer.ctx.drawImage(webglCanvas, 0, 0, dw, dh);
+          layerFar.ctx.drawImage(webglCanvas, 0, 0, dw, dh);
+        }
+
+        // Pass 2: 中景+近景合并渲染（一次搞定）
+        // 临时调整 near 层材质 opacity（模拟原来合成时的 globalAlpha=0.55）
+        const nearMeshes = this.renderMeshes['near'];
+        const savedOpacities = [];
+        if (nearMeshes) {
+          for (const m of nearMeshes) {
+            if (m && m.material) {
+              savedOpacities.push(m.material.opacity);
+              m.material.opacity = m.material.opacity * 0.55;
+            }
+          }
+        }
+        for (const rk of ['far', 'mid', 'near']) {
+          const meshes = this.renderMeshes[rk];
+          if (!meshes) continue;
+          const vis = (rk === 'mid' || rk === 'near');
+          for (const m of meshes) { if (m) m.visible = vis; }
+        }
+        this.renderer.clear();
+        this.renderer.render(this.scene, this.camera);
+        // 恢复 near 层材质 opacity
+        if (nearMeshes) {
+          let oi = 0;
+          for (const m of nearMeshes) {
+            if (m && m.material && oi < savedOpacities.length) {
+              m.material.opacity = savedOpacities[oi++];
+            }
+          }
+        }
+        const layerMidNear = this.displayLayers['midNear'];
+        if (layerMidNear && layerMidNear.ctx) {
+          const dw = layerMidNear.canvas.width, dh = layerMidNear.canvas.height;
+          layerMidNear.ctx.clearRect(0, 0, dw, dh);
+          const gl = this.renderer.getContext();
+          if (gl) gl.flush();
+          layerMidNear.ctx.drawImage(webglCanvas, 0, 0, dw, dh);
+        }
+
+        // 录像时也同步更新屏幕显示：合并结果写入 mid canvas（CSS blur=0），near 清空
+        const layerMid = this.displayLayers['mid'];
+        if (layerMid && layerMid.ctx && layerMidNear) {
+          const dw = layerMid.canvas.width, dh = layerMid.canvas.height;
+          layerMid.ctx.clearRect(0, 0, dw, dh);
+          layerMid.ctx.drawImage(layerMidNear.canvas, 0, 0, dw, dh);
+        }
+        const layerNear = this.displayLayers['near'];
+        if (layerNear && layerNear.ctx) {
+          layerNear.ctx.clearRect(0, 0, layerNear.canvas.width, layerNear.canvas.height);
+        }
+      } else {
+        // === 非录像时保持 3-pass 渲染 ===
+        for (const renderKey of ['far', 'mid', 'near']) {
+          for (const rk of ['far', 'mid', 'near']) {
+            const meshes = this.renderMeshes[rk];
+            if (!meshes) continue;
+            const vis = (rk === renderKey);
+            for (const m of meshes) { if (m) m.visible = vis; }
+          }
+          this.renderer.clear();
+          this.renderer.render(this.scene, this.camera);
+          const layer = this.displayLayers[renderKey];
+          if (layer && layer.ctx) {
+            const dw = layer.canvas.width, dh = layer.canvas.height;
+            layer.ctx.clearRect(0, 0, dw, dh);
+            const gl = this.renderer.getContext();
+            if (gl) gl.flush();
+            layer.ctx.drawImage(webglCanvas, 0, 0, dw, dh);
+          }
         }
       }
     }

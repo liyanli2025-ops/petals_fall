@@ -28,6 +28,8 @@ class CaptureManager {
     this.canvasMid = document.getElementById('canvas-mid');
     this.canvasNear = document.getElementById('canvas-near');
     this.canvasPerson = document.getElementById('canvas-person');
+    // 录像用：mid+near 合并层（由 particleSystem 动态创建，init 时注入）
+    this.canvasMidNear = null;
 
     // 外部注入 CameraManager 引用（用于判断前置/后置）
     this.cameraManager = null;
@@ -42,6 +44,18 @@ class CaptureManager {
     this._historyWriteIndex = 0;        // 当前写入位置
     this._historyFilled = 0;            // 已填充的帧数
     this._motionBlurInited = false;
+
+    // === 录像合成帧率节流 ===
+    // captureStream(24) 只需 24fps，主循环 60fps 驱动每帧都合成太浪费
+    // 每 N 帧合成一次，节省 ~60% 的合成开销
+    this._compositeInterval = 2;        // 每 2 帧合成一次（≈30fps，留余量给 captureStream 24fps）
+    this._compositeCounter = 0;         // 帧计数器
+
+    // === 录像性能优化：录像前状态存储 ===
+    this._preRecordPetalCount = null;   // 方案A: 录像前花瓣数量（结束后恢复）
+    this._preRecordFrameSkip = null;    // 方案B: 录像前分割帧跳数（结束后恢复）
+    // 外部注入 PersonSegmentation 引用（录像时降低分割频率）
+    this.segmentation = null;
   }
 
   /** 重置运动模糊历史帧缓存（密度变化时调用，防止旧帧残留） */
@@ -88,6 +102,11 @@ class CaptureManager {
     };
     this.$btnRecord.addEventListener('click', recordHandler);
     this.$btnRecord.addEventListener('touchend', recordHandler);
+
+    // 从粒子系统获取 mid+near 合并层离屏 canvas
+    if (this.particleSystem && this.particleSystem.displayLayers.midNear) {
+      this.canvasMidNear = this.particleSystem.displayLayers.midNear.canvas;
+    }
 
     this._resize();
     window.addEventListener('resize', () => this._resize());
@@ -225,31 +244,9 @@ class CaptureManager {
     // DPR 补偿：合成 canvas 分辨率是屏幕的 N 倍，模糊半径需等比放大
     const compositeDPR = w / window.innerWidth;
 
-    // === 录像时：与拍照相同的完整模糊流程（黑屏已通过同步合成解决） ===
+    // === 录像时：跳过所有模糊，直接绘制花瓣层（最大性能） ===
     if (this.isRecording) {
-      // 2. 远景花瓣层（完整高斯模糊，与拍照一致）
-      if (this.canvasFar.width > 0) {
-        ctx.save();
-        ctx.globalAlpha = 0.9;
-        this._drawBlurred(ctx, this.canvasFar, w, h, 2.5 * compositeDPR);
-        ctx.restore();
-      }
-
-      // 3. 人物遮罩层 — 遮挡远景花瓣，保持人在远景前面
-      this._drawPersonMask(ctx, w, h);
-
-      // 4. 中景花瓣层（清晰，素材已预处理去边）
-      if (this.canvasMid.width > 0) {
-        ctx.drawImage(this.canvasMid, 0, 0, w, h);
-      }
-
-      // 5. 近景花瓣层（完整高斯模糊，与拍照一致）
-      if (this.canvasNear.width > 0) {
-        ctx.save();
-        ctx.globalAlpha = 0.55;
-        this._drawBlurred(ctx, this.canvasNear, w, h, 4 * compositeDPR);
-        ctx.restore();
-      }
+      this._compositeRecordNoBlur(ctx, w, h);
       return;
     }
 
@@ -436,69 +433,40 @@ class CaptureManager {
     ctx.drawImage(this._blurCanvas2, 0, 0, this._blurCanvas2.width, this._blurCanvas2.height, 0, 0, w, h);
   }
 
-  /**
-   * 轻量缩放模糊（录像用）— 不走 WebGL，纯 Canvas 2D 缩小再放大
-   * 性能 ~1-2ms，适合录像时对远景层做轻度虚化
-   */
-  _drawScaleBlur(ctx, sourceCanvas, w, h, blurRadius) {
-    if (!this._scaleBlurCanvas) {
-      this._scaleBlurCanvas = document.createElement('canvas');
-      this._scaleBlurCtx = this._scaleBlurCanvas.getContext('2d');
-    }
-    // 缩小比例：blur 越大缩得越小
-    const scale = Math.max(0.08, 1 / (1 + blurRadius * 1.5));
-    const sw = Math.max(4, Math.floor(w * scale));
-    const sh = Math.max(4, Math.floor(h * scale));
-    this._scaleBlurCanvas.width = sw;
-    this._scaleBlurCanvas.height = sh;
-    this._scaleBlurCtx.imageSmoothingEnabled = true;
-    this._scaleBlurCtx.imageSmoothingQuality = 'high';
-    // 缩小
-    this._scaleBlurCtx.drawImage(sourceCanvas, 0, 0, sw, sh);
-    // 放大回原尺寸 — 双线性插值自然产生模糊效果
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(this._scaleBlurCanvas, 0, 0, sw, sh, 0, 0, w, h);
-  }
+
 
   /**
-   * 两级柔和缩放模糊（录像近景层专用）
-   * 先缩到 50%，再缩到 25%，最后放大回原尺寸
-   * 每级缩放都很温和（只 2x），不会破坏边缘半透明像素
-   * 效果接近 blur(3-4px)，无锯齿
+   * 录像专用：2-pass 无模糊合成
+   * far 单独 → 人物遮罩 → mid+near 合并层
+   * 比 3-pass 少一次 WebGL 渲染 + readback，保留人物遮罩穿插效果
    */
-  _drawSoftScaleBlur(ctx, sourceCanvas, w, h) {
-    if (!this._softBlurCanvas1) {
-      this._softBlurCanvas1 = document.createElement('canvas');
-      this._softBlurCtx1 = this._softBlurCanvas1.getContext('2d');
+  _compositeRecordNoBlur(ctx, w, h) {
+    // 远景花瓣层（直接绘制，不模糊）
+    if (this.canvasFar.width > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.9;
+      ctx.drawImage(this.canvasFar, 0, 0, w, h);
+      ctx.restore();
     }
-    if (!this._softBlurCanvas2) {
-      this._softBlurCanvas2 = document.createElement('canvas');
-      this._softBlurCtx2 = this._softBlurCanvas2.getContext('2d');
+
+    // 人物遮罩层（遮挡远景花瓣，在中近景之前）
+    this._drawPersonMask(ctx, w, h);
+
+    // 中景+近景合并层（2-pass 优化：一次 WebGL 渲染 mid+near）
+    if (this.canvasMidNear && this.canvasMidNear.width > 0) {
+      ctx.drawImage(this.canvasMidNear, 0, 0, w, h);
+    } else {
+      // 降级：未拿到合并层时，仍读取分离的 mid/near
+      if (this.canvasMid.width > 0) {
+        ctx.drawImage(this.canvasMid, 0, 0, w, h);
+      }
+      if (this.canvasNear.width > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.55;
+        ctx.drawImage(this.canvasNear, 0, 0, w, h);
+        ctx.restore();
+      }
     }
-
-    // 第一级：缩到 50%
-    const w1 = Math.max(4, Math.floor(w * 0.5));
-    const h1 = Math.max(4, Math.floor(h * 0.5));
-    this._softBlurCanvas1.width = w1;
-    this._softBlurCanvas1.height = h1;
-    this._softBlurCtx1.imageSmoothingEnabled = true;
-    this._softBlurCtx1.imageSmoothingQuality = 'high';
-    this._softBlurCtx1.drawImage(sourceCanvas, 0, 0, w1, h1);
-
-    // 第二级：再缩到 25%
-    const w2 = Math.max(4, Math.floor(w * 0.25));
-    const h2 = Math.max(4, Math.floor(h * 0.25));
-    this._softBlurCanvas2.width = w2;
-    this._softBlurCanvas2.height = h2;
-    this._softBlurCtx2.imageSmoothingEnabled = true;
-    this._softBlurCtx2.imageSmoothingQuality = 'high';
-    this._softBlurCtx2.drawImage(this._softBlurCanvas1, 0, 0, w1, h1, 0, 0, w2, h2);
-
-    // 放大回原尺寸
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(this._softBlurCanvas2, 0, 0, w2, h2, 0, 0, w, h);
   }
 
   /**
@@ -899,8 +867,25 @@ class CaptureManager {
         this._resetRecordingUI();
       };
 
+      // === 方案A: 录像时花瓣降到 80% ===
+      const ps = this.particleSystem;
+      if (ps && ps.petalData) {
+        this._preRecordPetalCount = ps.petalData.length;
+        const reducedCount = Math.round(this._preRecordPetalCount * 0.8);
+        ps.setPetalCount(reducedCount);
+        console.log(`[录像] 花瓣数: ${this._preRecordPetalCount} → ${reducedCount}`);
+      }
+
+      // === 方案C: 录像时降低分割蒙版分辨率（480→320，像素量减少55%）===
+      if (this.segmentation) {
+        this._preRecordMaskRes = this.segmentation.maskResolution;
+        this.segmentation.maskResolution = 320;
+        console.log(`[录像] 蒙版分辨率: ${this._preRecordMaskRes} → 320`);
+      }
+
       // 先设 isRecording，再合成一帧，确保第一帧不是黑色
       this.isRecording = true;
+      this._compositeCounter = 0; // 重置帧率节流计数器
       this._composite();
 
       this.mediaRecorder.start(100); // 每 100ms 收集一次数据
@@ -926,10 +911,38 @@ class CaptureManager {
   }
 
   stopRecording() {
+    // 截取最后一帧作为预览 poster（在 stop 之前，canvas 还有内容）
+    try {
+      this._lastFramePoster = this.compositeCanvas.toDataURL('image/jpeg', 0.85);
+    } catch (e) {
+      this._lastFramePoster = null;
+    }
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
       this.mediaRecorder.stop();
     }
     this.isRecording = false;
+
+    // === 方案A: 恢复录像前的花瓣数量 ===
+    if (this._preRecordPetalCount && this.particleSystem) {
+      this.particleSystem.setPetalCount(this._preRecordPetalCount);
+      console.log(`[录像结束] 花瓣数恢复: ${this._preRecordPetalCount}`);
+      this._preRecordPetalCount = null;
+    }
+
+    // === 方案B: 恢复录像前的分割频率 ===
+    if (this._preRecordFrameSkip !== null && this.segmentation) {
+      this.segmentation.frameSkip = this._preRecordFrameSkip;
+      console.log(`[录像结束] 分割帧跳恢复: ${this._preRecordFrameSkip}`);
+      this._preRecordFrameSkip = null;
+    }
+
+    // === 方案C: 恢复录像前的蒙版分辨率 ===
+    if (this._preRecordMaskRes && this.segmentation) {
+      this.segmentation.maskResolution = this._preRecordMaskRes;
+      console.log(`[录像结束] 蒙版分辨率恢复: ${this._preRecordMaskRes}`);
+      this._preRecordMaskRes = null;
+    }
+
     this._resetRecordingUI();
     this._updateCanvasSize(); // 恢复高清分辨率
     // 录像结束，恢复摄像头按钮
@@ -944,10 +957,14 @@ class CaptureManager {
 
   /**
    * 花瓣系统每帧渲染完成后调用此方法（2D canvas 内容已就绪）
-   * 这样合成时 canvasFar/canvasMid/canvasNear 一定有内容，不会黑屏
+   * 帧率节流：主循环 60fps，但 captureStream(24) 只需 24fps
+   * 每 2 帧合成一次（≈30fps），节省 ~50% 的合成开销
    */
   onFrameReady() {
     if (!this.isRecording) return;
+    this._compositeCounter++;
+    if (this._compositeCounter < this._compositeInterval) return;
+    this._compositeCounter = 0;
     this._composite();
   }
 
@@ -976,9 +993,11 @@ class CaptureManager {
 
   /**
    * 录像预览：近全屏带圆角边框，视频可播放，底部保存/重录按钮
+   * 微信兼容：blob URL 视频可能黑屏，先显示 poster 截图兜底
    */
   _showVideoPreviewNew(blob, filename) {
     const videoUrl = URL.createObjectURL(blob);
+    const posterSrc = this._lastFramePoster || '';
 
     // 清理之前的预览
     const oldOverlay = document.getElementById('video-preview-overlay-new');
@@ -989,7 +1008,15 @@ class CaptureManager {
     overlay.className = 'photo-preview-overlay';
     overlay.innerHTML = `
       <div class="photo-preview-frame">
-        <video class="video-preview-player-new" loop muted playsinline webkit-playsinline preload="auto"></video>
+        ${posterSrc ? `<img class="video-preview-poster" src="${posterSrc}" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;border-radius:inherit;z-index:1;">` : ''}
+        <video class="video-preview-player-new" loop muted playsinline webkit-playsinline preload="auto"
+          ${posterSrc ? `poster="${posterSrc}"` : ''}
+          style="position:relative;z-index:2;"></video>
+        <div class="video-play-hint" style="position:absolute;top:0;left:0;width:100%;height:100%;z-index:3;display:flex;align-items:center;justify-content:center;cursor:pointer;">
+          <div style="width:64px;height:64px;border-radius:50%;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="white"><polygon points="6,3 20,12 6,21"/></svg>
+          </div>
+        </div>
       </div>
       <div class="photo-preview-actions">
         <button class="photo-preview-btn" id="video-preview-discard">
@@ -1005,27 +1032,52 @@ class CaptureManager {
     document.body.appendChild(overlay);
 
     const video = overlay.querySelector('.video-preview-player-new');
-    video.src = videoUrl;
-    video.load(); // 强制触发加载（iOS Safari 对 blob URL 需要显式 load）
+    const posterImg = overlay.querySelector('.video-preview-poster');
+    const playHint = overlay.querySelector('.video-play-hint');
 
-    // iOS Safari blob URL 视频播放策略：
-    // 不做 currentTime seek hack（在某些 iOS 版本上反而导致黑屏）
-    // 直接 play()，通过多事件 + 多次重试确保播放成功
+    // 视频播放成功后隐藏 poster 图片和播放按钮
+    let videoPlaying = false;
+    const onVideoPlaying = () => {
+      if (videoPlaying) return;
+      videoPlaying = true;
+      if (posterImg) posterImg.style.display = 'none';
+      if (playHint) playHint.style.display = 'none';
+    };
+    video.addEventListener('playing', onVideoPlaying);
+    // timeupdate 也能检测到（某些浏览器 playing 事件不可靠）
+    video.addEventListener('timeupdate', function onTU() {
+      if (video.currentTime > 0.05) {
+        onVideoPlaying();
+        video.removeEventListener('timeupdate', onTU);
+      }
+    });
+
+    // 点击播放按钮 / 视频区域 → 手动播放（解决移动端自动播放限制）
+    const manualPlay = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      video.play().catch(() => {});
+    };
+    if (playHint) playHint.addEventListener('click', manualPlay);
+    if (playHint) playHint.addEventListener('touchend', manualPlay);
+
+    video.src = videoUrl;
+    video.load();
+
     const tryPlay = () => {
       video.play().catch(() => {});
     };
 
-    // 多事件监听，取最先触发的
+    // 多事件监听
     video.addEventListener('canplay', tryPlay, { once: true });
     video.addEventListener('loadeddata', tryPlay, { once: true });
 
-    // 如果 readyState 已足够，直接播放
     if (video.readyState >= 3) {
       tryPlay();
     }
 
-    // 多轮兜底重试（无条件尝试，不检查 readyState）
-    [500, 1500, 3000, 5000].forEach(delay => {
+    // 多轮兜底重试
+    [300, 800, 1500, 3000, 5000].forEach(delay => {
       setTimeout(() => {
         if (video.paused) video.play().catch(() => {});
       }, delay);

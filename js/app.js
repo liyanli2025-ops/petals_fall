@@ -330,10 +330,11 @@
       if (capture) capture.resetMotionBlurHistory();
     });
 
-    // 风起按钮
+    // 风起按钮（录像中禁用，避免性能下降）
     const windHandler = (e) => {
       e.preventDefault();
       if (!particles) return;
+      if (capture && capture.isRecording) return;
       particles.triggerWindGust();
       // 按钮激活态
       $btnWind.classList.add('wind-active');

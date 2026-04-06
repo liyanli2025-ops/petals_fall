@@ -27,6 +27,9 @@ class PersonSegmentation {
     // 蒙版处理用的中间 canvas
     this._maskCanvas = null;
     this._maskCtx = null;
+
+    // 蒙版分辨率上限（默认 480，录像时可降到 320 以提升性能）
+    this.maskResolution = 480;
   }
 
   async init() {
@@ -144,8 +147,9 @@ class PersonSegmentation {
       this._maskCanvas = document.createElement('canvas');
       this._maskCtx = this._maskCanvas.getContext('2d', { willReadFrequently: true });
     }
-    const mw = Math.min(vw, 480);
-    const mh = Math.min(vh, Math.round(480 * vh / vw));
+    const maxRes = this.maskResolution;
+    const mw = Math.min(vw, maxRes);
+    const mh = Math.min(vh, Math.round(maxRes * vh / vw));
     if (this._maskCanvas.width !== mw || this._maskCanvas.height !== mh) {
       this._maskCanvas.width = mw;
       this._maskCanvas.height = mh;
