@@ -13,12 +13,16 @@
 <body>
   <!-- 启动引导页 -->
   <div id="landing" class="landing">
-    <!-- 视频背景 -->
-    <video class="landing-video" autoplay muted loop playsinline webkit-playsinline x5-video-player-type="h5-page" x5-video-player-fullscreen="true">
+    <!-- 视频背景（poster 先行显示，视频加载后自动覆盖） -->
+    <video class="landing-video" autoplay muted loop playsinline webkit-playsinline x5-video-player-type="h5-page" x5-video-player-fullscreen="true" poster="start_poster.jpg">
       <source src="https://mat1.gtimg.com/qqcdn/redian/petals_fall/start.mp4" type="video/mp4">
     </video>
+    <!-- 终极兜底：视频完全无法播放时显示静态背景图 -->
+    <img class="landing-poster-fallback" src="start_poster.jpg" alt="">
     <!-- 遮罩层 -->
     <div class="landing-overlay"></div>
+    <!-- 腾讯新闻Logo -->
+    <img class="landing-txnews-logo" src="txnews_logo.png" alt="腾讯新闻">
     <!-- 内容层 -->
     <div class="landing-content">
       <!-- 标题Logo -->
@@ -131,8 +135,11 @@
   <script src="js/particles.js"></script>
   <script src="js/gyroscope.js"></script>
   <script src="js/webgl-blur.js"></script>
+  <script src="js/device-tier.js"></script>
   <script src="js/capture.js"></script>
   <script src="js/app.js"></script>
+  <!-- 灯塔数据埋点 -->
+  <script src="report.js"></script>
   <!-- 分享能力 -->
   <script>
   (function() {

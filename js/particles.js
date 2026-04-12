@@ -109,19 +109,29 @@ class PetalParticleSystem {
     }
 
     try {
+      const tc = this.tierConfig || {};
+      const useAA = tc.enableAntiAlias !== undefined ? tc.enableAntiAlias : true;
+      const dprLimit = tc.dprLimit || 2;
+
       this.renderer = new THREE.WebGLRenderer({
         canvas: this.canvas,
         alpha: true,
-        antialias: true,
+        antialias: useAA,
         premultipliedAlpha: true,
         powerPreference: 'high-performance',
         preserveDrawingBuffer: false
       });
       this.renderer.setSize(window.innerWidth, window.innerHeight);
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 提升渲染质量
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, dprLimit));
       this.renderer.setClearColor(0x000000, 0);
-      this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      this.renderer.toneMappingExposure = 1.2;
+
+      if (tc.enableToneMapping !== false) {
+        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        this.renderer.toneMappingExposure = 1.2;
+      } else {
+        this.renderer.toneMapping = THREE.NoToneMapping;
+      }
+
       if (this.renderer.outputColorSpace !== undefined) {
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
       }
@@ -151,18 +161,28 @@ class PetalParticleSystem {
       this._forceRecreateRenderer();
     });
 
-    // 光源
-    const hemiLight = new THREE.HemisphereLight(0xfff5f0, 0xc8b0ff, 0.6);
+    // 光源 — 按设备等级精简
+    const tc = this.tierConfig || {};
+    const lightCount = tc.lightCount !== undefined ? tc.lightCount : 4;
+    
+    const hemiLight = new THREE.HemisphereLight(0xfff5f0, 0xc8b0ff, lightCount >= 4 ? 0.6 : 0.8);
     this.scene.add(hemiLight);
-    const mainLight = new THREE.DirectionalLight(0xfff0e0, 0.9);
-    mainLight.position.set(5, 8, 3);
-    this.scene.add(mainLight);
-    const fillLight = new THREE.DirectionalLight(0xe0e8ff, 0.35);
-    fillLight.position.set(-3, -2, -5);
-    this.scene.add(fillLight);
-    const backLight = new THREE.PointLight(0xffcccc, 0.5, 40);
-    backLight.position.set(0, 5, -8);
-    this.scene.add(backLight);
+    
+    if (lightCount >= 2) {
+      const mainLight = new THREE.DirectionalLight(0xfff0e0, 0.9);
+      mainLight.position.set(5, 8, 3);
+      this.scene.add(mainLight);
+    }
+    if (lightCount >= 3) {
+      const fillLight = new THREE.DirectionalLight(0xe0e8ff, 0.35);
+      fillLight.position.set(-3, -2, -5);
+      this.scene.add(fillLight);
+    }
+    if (lightCount >= 4) {
+      const backLight = new THREE.PointLight(0xffcccc, 0.5, 40);
+      backLight.position.set(0, 5, -8);
+      this.scene.add(backLight);
+    }
 
     // 不使用 fog — 景深通过 CSS blur 在 3 个显示层上实现
 
@@ -395,14 +415,28 @@ class PetalParticleSystem {
       // premultiplied alpha：消除边缘白边/黑边
       texture.premultiplyAlpha = true;
       texture.needsUpdate = true;
-      // 近景材质（PhysicalMaterial，有光照质感）
-      // 移除 alphaTest 硬裁切，完全依赖 alpha blending 实现柔和边缘
-      const mat = new THREE.MeshPhysicalMaterial({
-        map: texture, side: THREE.DoubleSide, transparent: true,
-        opacity: 0.95, roughness: 0.55, metalness: 0.0, clearcoat: 0.08,
-        clearcoatRoughness: 0.4, transmission: 0.05, thickness: 0.35, depthWrite: false,
-        premultipliedAlpha: true,
-      });
+
+      // 根据设备等级选择材质：高端用 PhysicalMaterial，中低端用 BasicMaterial
+      const usePBR = this.tierConfig && this.tierConfig.usePBRMaterial !== undefined
+        ? this.tierConfig.usePBRMaterial : true;
+
+      let mat;
+      if (usePBR) {
+        // 近景材质（PhysicalMaterial，有光照质感）
+        mat = new THREE.MeshPhysicalMaterial({
+          map: texture, side: THREE.DoubleSide, transparent: true,
+          opacity: 0.95, roughness: 0.55, metalness: 0.0, clearcoat: 0.08,
+          clearcoatRoughness: 0.4, transmission: 0.05, thickness: 0.35, depthWrite: false,
+          premultipliedAlpha: true,
+        });
+      } else {
+        // 中低端：用 LambertMaterial（有基础光照但不做 PBR 计算）
+        mat = new THREE.MeshLambertMaterial({
+          map: texture, side: THREE.DoubleSide, transparent: true,
+          opacity: 0.95, depthWrite: false,
+          premultipliedAlpha: true,
+        });
+      }
       this.petalMaterials.push(mat);
       // 远景材质（BasicMaterial，纯贴图，同样移除 alphaTest）
       const farMat = new THREE.MeshBasicMaterial({
@@ -1246,7 +1280,6 @@ class PetalParticleSystem {
         }
 
         // Pass 2: 中景+近景合并渲染（一次搞定）
-        // 临时调整 near 层材质 opacity（模拟原来合成时的 globalAlpha=0.55）
         const nearMeshes = this.renderMeshes['near'];
         const savedOpacities = [];
         if (nearMeshes) {
@@ -1265,7 +1298,6 @@ class PetalParticleSystem {
         }
         this.renderer.clear();
         this.renderer.render(this.scene, this.camera);
-        // 恢复 near 层材质 opacity
         if (nearMeshes) {
           let oi = 0;
           for (const m of nearMeshes) {
@@ -1283,7 +1315,7 @@ class PetalParticleSystem {
           layerMidNear.ctx.drawImage(webglCanvas, 0, 0, dw, dh);
         }
 
-        // 录像时也同步更新屏幕显示：合并结果写入 mid canvas（CSS blur=0），near 清空
+        // 录像时也同步更新屏幕显示
         const layerMid = this.displayLayers['mid'];
         if (layerMid && layerMid.ctx && layerMidNear) {
           const dw = layerMid.canvas.width, dh = layerMid.canvas.height;
@@ -1378,9 +1410,23 @@ class PetalParticleSystem {
   }
 
   autoTunePerformance() {
-    if (this.fps > 0 && this.fps < 15 && this.petalData.length > 500) {
-      const reduction = Math.max(30, Math.floor(this.petalData.length * 0.08));
-      this.setPetalCount(this.petalData.length - reduction);
+    if (this.fps <= 0 || this.petalData.length <= 200) return;
+    
+    // FPS < 25 开始降级（比原来的 15 更积极）
+    if (this.fps < 25 && this.petalData.length > 200) {
+      // 每次减 15%（比原来的 8% 更大幅度）
+      const reduction = Math.max(50, Math.floor(this.petalData.length * 0.15));
+      const newCount = Math.max(200, this.petalData.length - reduction);
+      console.log('[AutoTune] FPS=' + this.fps + ' 降级: ' + this.petalData.length + ' → ' + newCount);
+      this.setPetalCount(newCount);
+    }
+    // FPS 持续 > 45 且花瓣数远低于目标值，可以尝试升级
+    else if (this.fps > 45 && this.petalData.length < this.petalCount * 0.8) {
+      const increase = Math.floor(this.petalData.length * 0.05);
+      const newCount = Math.min(this.petalCount, this.petalData.length + increase);
+      if (newCount > this.petalData.length) {
+        this.setPetalCount(newCount);
+      }
     }
   }
 

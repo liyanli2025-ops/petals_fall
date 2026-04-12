@@ -12,15 +12,36 @@
   // === 视频自动播放兼容（所有环境） ===
   var isWx = /MicroMessenger/i.test(navigator.userAgent);
   var landingVideo = document.querySelector('.landing-video');
+  var landingPoster = document.querySelector('.landing-poster-fallback');
+
+  // 视频播放成功后隐藏兜底图（节省内存）
+  var videoPlayStarted = false;
+  function onVideoPlaying() {
+    if (videoPlayStarted) return;
+    videoPlayStarted = true;
+    // 视频已在播放，兜底图不再需要
+    if (landingPoster) landingPoster.style.display = 'none';
+  }
 
   function tryPlayVideo() {
     if (!landingVideo || !landingVideo.paused) return;
     landingVideo.muted = true;
     var p = landingVideo.play();
-    if (p && p.catch) p.catch(function() {});
+    if (p && p.then) {
+      p.then(function() { onVideoPlaying(); }).catch(function() {});
+    }
   }
 
   if (landingVideo) {
+    // 监听视频播放成功
+    landingVideo.addEventListener('playing', onVideoPlaying);
+    landingVideo.addEventListener('timeupdate', function onTU() {
+      if (landingVideo.currentTime > 0.05) {
+        onVideoPlaying();
+        landingVideo.removeEventListener('timeupdate', onTU);
+      }
+    });
+
     // 1. 立即尝试
     tryPlayVideo();
 
@@ -58,6 +79,15 @@
       tryPlayVideo();
       document.removeEventListener('touchstart', videoTouchPlay);
     }, { once: true, passive: true });
+
+    // 7. 超时检测：5 秒后若视频仍未播放，隐藏 video 让兜底图显示
+    setTimeout(function() {
+      if (!videoPlayStarted && landingVideo) {
+        console.log('[开屏] 视频 5 秒未播放，切换到静态海报兜底');
+        landingVideo.style.display = 'none';
+        if (landingPoster) landingPoster.style.display = '';
+      }
+    }, 5000);
   }
 
   const $landing = document.getElementById('landing');
@@ -79,6 +109,10 @@
   let capture = null;
   let animationId = null;
   let performanceTuneTimer = null;
+
+  // === 设备性能分级 ===
+  const deviceTier = new DeviceTier();
+  const tierConfig = deviceTier.getRenderConfig();
 
   function debug(msg) {
     console.log(msg);
@@ -207,34 +241,91 @@
       await gyroscope.initWithPermission(gyroGranted);
       debug('控制模式: ' + gyroscope.mode);
 
+      // === 极低端兜底：CSS 花瓣动画 ===
+      if (tierConfig.useCSSFallback) {
+        debug('设备等级: minimal, 使用 CSS 花瓣兜底');
+        _createCSSPetals();
+        // 跳过 WebGL 花瓣系统、人体分割等
+      } else {
       // 花瓣粒子系统
       particles = new PetalParticleSystem();
+      // 传入设备等级配置
+      particles.tierConfig = tierConfig;
       particles.init();
 
       const isMobile = /Mobi|Android|iPhone/i.test(navigator.userAgent);
-      const initialCount = isMobile ? 2000 : 3000;
+      // 根据设备等级决定花瓣数（移动端在 tierConfig 基础上再乘 0.67）
+      let initialCount = tierConfig.petalCount;
+      if (isMobile && deviceTier.tier === 'high') {
+        initialCount = 2000; // 高端移动端仍保持 2000
+      }
       particles.petalCount = initialCount;
       $petalDensity.value = initialCount;
+      // 调整密度滑条范围（低端机上限调低）
+      if (deviceTier.tier === 'low') {
+        $petalDensity.max = 1500;
+      } else if (deviceTier.tier === 'medium') {
+        $petalDensity.max = 3000;
+      }
+
+      // === CSS blur 降级 ===
+      if (!tierConfig.enableCSSBlur) {
+        // 低端机：移除所有花瓣层的 CSS blur
+        var layerFarEl = document.getElementById('canvas-far');
+        var layerMidEl = document.getElementById('canvas-mid');
+        var layerNearEl = document.getElementById('canvas-near');
+        if (layerFarEl) { layerFarEl.style.filter = 'none'; layerFarEl.style.webkitFilter = 'none'; }
+        if (layerMidEl) { layerMidEl.style.filter = 'none'; layerMidEl.style.webkitFilter = 'none'; }
+        if (layerNearEl) { layerNearEl.style.filter = 'none'; layerNearEl.style.webkitFilter = 'none'; }
+      } else if (deviceTier.tier === 'medium') {
+        // 中端机：减弱 blur
+        var layerFarEl = document.getElementById('canvas-far');
+        var layerMidEl = document.getElementById('canvas-mid');
+        var layerNearEl = document.getElementById('canvas-near');
+        if (layerFarEl) { layerFarEl.style.filter = 'blur(' + tierConfig.cssBlurFar + 'px)'; layerFarEl.style.webkitFilter = 'blur(' + tierConfig.cssBlurFar + 'px)'; }
+        if (layerMidEl) { layerMidEl.style.filter = 'blur(' + tierConfig.cssBlurMid + 'px)'; layerMidEl.style.webkitFilter = 'blur(' + tierConfig.cssBlurMid + 'px)'; }
+        if (layerNearEl) { layerNearEl.style.filter = 'blur(' + tierConfig.cssBlurNear + 'px)'; layerNearEl.style.webkitFilter = 'blur(' + tierConfig.cssBlurNear + 'px)'; }
+      }
 
       // 人体分割 + 花瓣碰撞
       bodyCollision = new BodyCollisionDetector();
       
-      if (cameraStream) {
+      if (cameraStream && tierConfig.enableSegmentation) {
         segmentation = new PersonSegmentation();
+        // 按设备等级覆写跳帧
+        if (tierConfig.segmentationFrameSkip > 0) {
+          segmentation._tierFrameSkip = tierConfig.segmentationFrameSkip;
+        }
         const segOk = await segmentation.init();
         if (segOk) {
+          // 覆写 frameSkip（如果 tier 指定了）
+          if (segmentation._tierFrameSkip && isMobile) {
+            segmentation.frameSkip = Math.max(segmentation.frameSkip, segmentation._tierFrameSkip);
+          }
           segmentation.bodyCollision = bodyCollision;
           segmentation.start();
           
           // 注入碰撞检测器到花瓣系统
           particles.bodyCollision = bodyCollision;
           
-          debug('人体分割+碰撞: 已启动');
+          debug('人体分割+碰撞: 已启动 (跳帧=' + segmentation.frameSkip + ')');
           document.getElementById('canvas-person').style.display = 'block';
         } else {
           debug('人体分割: 不可用，花瓣碰撞关闭');
           segmentation = null;
         }
+      } else {
+        if (!tierConfig.enableSegmentation) {
+          debug('人体分割: 已按设备等级(' + deviceTier.tier + ')关闭');
+        }
+      }
+      } // end of !useCSSFallback
+
+      // minimal 模式下隐藏花瓣密度控制和风起按钮（CSS 花瓣不响应这些）
+      if (tierConfig.useCSSFallback) {
+        var petalCtrl = document.getElementById('petal-count-control');
+        if (petalCtrl) petalCtrl.style.display = 'none';
+        $btnWind.parentElement.style.display = 'none';
       }
 
       // === 4. 切换场景 ===
@@ -245,10 +336,12 @@
       // === 4.5 初始化拍照/录像 ===
       capture = new CaptureManager();
       capture.cameraManager = cameraModule;
-      capture.particleSystem = particles;
+      capture.deviceTier = deviceTier.tier; // 注入设备等级
+      if (particles) capture.particleSystem = particles;
+      if (segmentation) capture.segmentation = segmentation; // 注入分割引用
       capture.init();
       // 双向绑定：花瓣渲染完成后同步通知录像合成（解决录像黑屏）
-      particles.captureManager = capture;
+      if (particles) particles.captureManager = capture;
 
       // 暴露 gyroscope 到全局，供拍照时获取相机数据
       window._gyroscope = gyroscope;
@@ -264,7 +357,7 @@
 
       performanceTuneTimer = setInterval(() => {
         if (particles) particles.autoTunePerformance();
-      }, 5000);
+      }, 2000);
 
     } catch (err) {
       debug('启动失败: ' + err.message);
@@ -287,8 +380,8 @@
       const delta = Math.min((now - lastTime) / 1000, 0.05);
       lastTime = now;
 
-      gyroscope.update();
-      particles.update(gyroscope.getCameraData());
+      if (gyroscope) gyroscope.update();
+      if (particles) particles.update(gyroscope ? gyroscope.getCameraData() : null);
 
       // 人体分割更新
       if (segmentation) {
@@ -296,6 +389,33 @@
       }
     }
     loop();
+  }
+
+  // ============================================
+  // CSS 花瓣兜底（极低端/无 WebGL 设备）
+  // ============================================
+  function _createCSSPetals() {
+    var container = document.createElement('div');
+    container.className = 'css-petals-container';
+    var sceneEl = document.getElementById('scene');
+    if (!sceneEl) return;
+    sceneEl.appendChild(container);
+
+    var count = 30; // CSS 动画花瓣数量（轻量）
+    for (var i = 0; i < count; i++) {
+      var petal = document.createElement('div');
+      petal.className = 'css-petal';
+      var size = 12 + Math.random() * 16;
+      var left = Math.random() * 100;
+      var delay = Math.random() * 8;
+      var duration = 6 + Math.random() * 6;
+      petal.style.cssText = 'width:' + size + 'px;height:' + size + 'px;'
+        + 'left:' + left + '%;'
+        + 'animation-duration:' + duration + 's;'
+        + 'animation-delay:' + delay + 's;'
+        + 'opacity:' + (0.4 + Math.random() * 0.4) + ';';
+      container.appendChild(petal);
+    }
   }
 
   // ============================================

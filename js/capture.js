@@ -37,6 +37,9 @@ class CaptureManager {
     // 外部注入 PetalParticleSystem 引用（拍照时临时提升 DPR）
     this.particleSystem = null;
 
+    // === 设备性能分级（外部注入） ===
+    this.deviceTier = null; // 'low' | 'medium' | 'high'
+
     // === 运动模糊（多帧累积） ===
     // 保存最近 N 帧的花瓣层快照，合成时叠加产生拖影
     this._motionBlurFrames = 3;         // 保留历史帧数
@@ -46,9 +49,9 @@ class CaptureManager {
     this._motionBlurInited = false;
 
     // === 录像合成帧率节流 ===
-    // captureStream(24) 只需 24fps，主循环 60fps 驱动每帧都合成太浪费
-    // 每 N 帧合成一次，节省 ~60% 的合成开销
-    this._compositeInterval = 2;        // 每 2 帧合成一次（≈30fps，留余量给 captureStream 24fps）
+    // 优化后每帧合成负担大幅减轻（1-pass + 0.75x 分辨率），可以每帧都合成
+    // 确保 captureStream 每次取到新画面，消除"翻图片"感
+    this._compositeInterval = 1;        // 每帧都合成（≈60fps → captureStream 24fps 取帧）
     this._compositeCounter = 0;         // 帧计数器
 
     // === 录像性能优化：录像前状态存储 ===
@@ -118,9 +121,20 @@ class CaptureManager {
   }
 
   _updateCanvasSize() {
-    const dpr = this.isRecording ? 1 : Math.min(window.devicePixelRatio || 1, 3);
-    this.compositeCanvas.width = window.innerWidth * dpr;
-    this.compositeCanvas.height = window.innerHeight * dpr;
+    const tier = this.deviceTier || 'high';
+    let dpr, scale;
+    if (this.isRecording) {
+      dpr = 1;
+      // 低端机录像进一步缩小到 0.5x（像素量再减56%）
+      scale = tier === 'low' ? 0.5 : 0.75;
+    } else {
+      // 拍照时：低端机 DPR=1（像素量减75%），中端机限 2，高端机最高 3
+      const maxDpr = tier === 'low' ? 1 : (tier === 'medium' ? 2 : 3);
+      dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
+      scale = 1;
+    }
+    this.compositeCanvas.width = Math.round(window.innerWidth * dpr * scale);
+    this.compositeCanvas.height = Math.round(window.innerHeight * dpr * scale);
   }
 
   /**
@@ -250,7 +264,45 @@ class CaptureManager {
       return;
     }
 
-    // === 非录像（拍照）时：完整运动模糊流程 ===
+    // === 非录像（拍照）时 ===
+    const tier = this.deviceTier || 'high';
+
+    // 低端/中端机：跳过运动模糊 + 跳过模糊绘制，直接合成当前帧（大幅加速）
+    if (tier === 'low' || tier === 'medium') {
+      // 远景花瓣层（低端机不做模糊，直接绘制）
+      if (this.canvasFar.width > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.9;
+        if (tier === 'low') {
+          // low 档：直接 drawImage，完全跳过模糊
+          ctx.drawImage(this.canvasFar, 0, 0, w, h);
+        } else {
+          // medium 档：保留模糊，但不做运动模糊叠加
+          this._drawBlurred(ctx, this.canvasFar, w, h, 2.5 * compositeDPR);
+        }
+        ctx.restore();
+      }
+      // 人物遮罩层
+      this._drawPersonMask(ctx, w, h);
+      // 中景花瓣层
+      if (this.canvasMid.width > 0) {
+        ctx.drawImage(this.canvasMid, 0, 0, w, h);
+      }
+      // 近景花瓣层
+      if (this.canvasNear.width > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.55;
+        if (tier === 'low') {
+          ctx.drawImage(this.canvasNear, 0, 0, w, h);
+        } else {
+          this._drawBlurred(ctx, this.canvasNear, w, h, 4 * compositeDPR);
+        }
+        ctx.restore();
+      }
+      return;
+    }
+
+    // === 高端机：完整运动模糊流程 ===
 
     // 懒初始化 / 尺寸变化时重建 buffer
     if (!this._motionBlurInited || this._motionBlurW !== w || this._motionBlurH !== h) {
@@ -275,8 +327,6 @@ class CaptureManager {
     if (this.canvasMid.width > 0) {
       tmpCtx.drawImage(this.canvasMid, 0, 0, w, h);
     }
-
-    // 5. 人物遮罩层 — 拍照合成时已在远景后绘制，此处无需重复
 
     // 5. 近景花瓣层（CSS blur(4px) 对应 + 降低透明度）
     if (this.canvasNear.width > 0) {
@@ -542,9 +592,11 @@ class CaptureManager {
       }
     }
 
+    const tier = this.deviceTier || 'high';
+
     try {
-      // 预缓存花瓣层历史帧（仅 PC 端，移动端跳过以加速）
-      if (!this.isRecording && !isMobileShot) {
+      // 预缓存花瓣层历史帧（仅 PC 端高端机，移动端/低端机跳过以加速）
+      if (!this.isRecording && !isMobileShot && tier === 'high') {
         this._preloadMotionBlurHistory();
       }
       this._composite();
@@ -587,16 +639,44 @@ class CaptureManager {
     const imgExt = isMobileShot ? '.jpg' : '.png';
     const filename = 'petals_' + this._timestamp() + imgExt;
 
-    // 导出 blob → 弹出预览界面
+    // JPEG 质量：低端机 0.7（减小体积40-60%），中端机 0.85，高端机 0.92
+    const jpegQuality = tier === 'low' ? 0.70 : (tier === 'medium' ? 0.85 : 0.92);
+
+    // 导出 blob → 弹出预览界面（带超时保护）
     try {
+      let blobDone = false;
+
+      // 超时保护：5 秒后如果 toBlob 还没返回，提示用户
+      const blobTimeout = setTimeout(() => {
+        if (!blobDone) {
+          blobDone = true;
+          console.warn('[拍照] toBlob 超时 (5s)');
+          this._showToast('图片合成超时，请重试');
+        }
+      }, 5000);
+
       this.compositeCanvas.toBlob((blob) => {
+        if (blobDone) return; // 已超时，忽略回调
+        blobDone = true;
+        clearTimeout(blobTimeout);
+
         if (!blob) {
           this._showToast('拍照失败: 图片生成为空');
           return;
         }
+
+        // blob 大小检查：超过 4MB 自动降质量重新导出
+        if (blob.size > 4 * 1024 * 1024 && imgFormat === 'image/jpeg') {
+          console.log(`[拍照] blob 过大(${(blob.size/1024/1024).toFixed(1)}MB)，降质量重导`);
+          this.compositeCanvas.toBlob((smallBlob) => {
+            this._showPhotoPreview(smallBlob || blob, filename);
+          }, 'image/jpeg', 0.6);
+          return;
+        }
+
         // 拍照后先弹预览，用户再选择保存/分享/关闭
         this._showPhotoPreview(blob, filename);
-      }, imgFormat, isMobileShot ? 0.92 : undefined);
+      }, imgFormat, isMobileShot ? jpegQuality : undefined);
     } catch (err) {
       console.error('toBlob 调用失败:', err);
       this._showToast('拍照失败');
@@ -662,9 +742,10 @@ class CaptureManager {
     overlay.querySelector('#photo-preview-retake').addEventListener('touchend', retakeHandler);
 
     // 保存（click + touchend 双绑）
+    // 注意：不调用 e.preventDefault()，避免消耗 user activation 导致 PC Chrome <a download> 被拦截
     let saveDone = false;
     const saveHandler = (e) => {
-      e.preventDefault(); e.stopPropagation();
+      e.stopPropagation();
       if (saveDone) return; saveDone = true;
       this._savePhoto(blob, filename, cleanup);
     };
@@ -680,52 +761,272 @@ class CaptureManager {
   }
 
   /**
-   * 保存照片/视频 — 统一优先级链（所有环境一致）
+   * 检测环境类型（缓存结果，避免重复判断）
+   */
+  _detectEnv() {
+    if (this._envCache) return this._envCache;
+    const ua = navigator.userAgent;
+    const isAndroid = /Android/i.test(ua);
+    const isWx = /MicroMessenger/i.test(ua);
+    const isWxWork = /wxwork/i.test(ua);
+    this._envCache = {
+      isAndroid,
+      isWxPersonal: isWx && !isWxWork,
+      isWxWork: isWx && isWxWork,
+      isQQNews: /qqnews/i.test(ua),
+      isQQ: /\bQQ\//i.test(ua) || /MQQBrowser/i.test(ua),
+      isQQBrowser: /QQBrowser/i.test(ua),
+      isTBS: /TBS\//i.test(ua) || /Xweb\//i.test(ua),
+      isWindows: /Windows/i.test(ua),
+      isMobile: /Mobi|Android|iPhone|iPad|iPod/i.test(ua),
+    };
+    return this._envCache;
+  }
+
+  /**
+   * 保存照片/视频 — 统一优先级链（分环境精细化处理）
    * 
    * 优先级：
-   *   1. navigator.share (files) → 保存到相册（最优）
-   *   2. <a download> → 保存到手机文件（次优）
-   *   3. 弹预览 + 操作指引 → 兜底
-   * 
-   * 注意：微信个人版不支持 share 也不支持 download，直接走兜底
+   *   1. navigator.share (files) → 保存到相册（最优，非Windows/非微信/非安卓WebView）
+   *   2. 平台专用 JSBridge（微信 imagePreview、QQ/腾讯新闻 <a download> 增强）
+   *   3. showSaveFilePicker（PC Chrome/Edge）
+   *   4. <a download>（标准浏览器）
+   *   5. 弹预览 + 长按保存（终极兜底）
    */
   _saveMedia(blob, filename, onDone) {
     const done = () => { if (onDone) onDone(); };
     const mimeType = blob.type || (filename.endsWith('.png') ? 'image/png' : 'video/mp4');
     const isImage = mimeType.startsWith('image/');
-    const isWxPersonal = this._isWechat() && !/wxwork/i.test(navigator.userAgent);
+    const env = this._detectEnv();
 
-    // === 优先级 1：navigator.share → 保存到相册 ===
-    // 所有环境都尝试（微信个人版也试一下，万一以后支持了）
-    try {
-      const file = new File([blob], filename, { type: mimeType });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        done();
-        navigator.share({ files: [file] }).then(() => {
-          this._showToast('已保存');
-        }).catch((err) => {
-          if (err.name !== 'AbortError') {
-            // share 失败，走后续降级
-            this._fallbackSave(blob, filename, isImage, isWxPersonal);
-          }
-        });
-        return;
-      }
-    } catch (e) { /* 不支持，继续降级 */ }
+    // === Android 微信个人版：专用路径 ===
+    if (env.isAndroid && env.isWxPersonal) {
+      this._saveInWechat(blob, filename, isImage, done);
+      return;
+    }
 
-    // share 不可用，走降级
-    this._fallbackSave(blob, filename, isImage, isWxPersonal);
-    done();
+    // === Android 腾讯新闻App / QQ / QQ浏览器：尝试 <a download>，失败弹预览 ===
+    if (env.isAndroid && (env.isQQNews || env.isQQ || env.isQQBrowser || env.isTBS)) {
+      this._saveInAndroidWebView(blob, filename, isImage, done);
+      return;
+    }
+
+    // Windows 桌面端跳过 navigator.share（弹共享面板体验差）
+    if (!env.isWindows) {
+      try {
+        const file = new File([blob], filename, { type: mimeType });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          done();
+          navigator.share({ files: [file] }).then(() => {
+            this._showToast('已保存');
+          }).catch((err) => {
+            if (err.name !== 'AbortError') {
+              this._fallbackSave(blob, filename, isImage, done);
+            }
+          });
+          return;
+        }
+      } catch (e) { /* 不支持，继续降级 */ }
+    }
+
+    // 走通用降级
+    this._fallbackSave(blob, filename, isImage, done);
   }
 
   /**
-   * share 不可用时的降级保存
+   * Android 微信个人版专用保存
+   * 图片：WeixinJSBridge.invoke('imagePreview') → 微信原生图片预览器 → 用户可直接长按保存到相册
+   * 视频：弹预览 + 下载按钮（微信对视频无原生保存接口）
    */
-  _fallbackSave(blob, filename, isImage, isWxPersonal) {
-    // === 优先级 2：<a download> → 保存到手机 ===
-    // 微信个人版的 <a download> 会跳到空白页，不可用，跳过
-    if (!isWxPersonal) {
-      // 尝试 download，大部分浏览器（PC + Android Chrome/Firefox + 企微等）有效
+  _saveInWechat(blob, filename, isImage, done) {
+    const finish = () => { if (done) done(); };
+
+    if (isImage) {
+      // 图片转 base64 data URL
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result;
+
+        // 尝试 WeixinJSBridge 原生预览（用户在微信原生预览中可直接保存到相册）
+        if (window.WeixinJSBridge) {
+          try {
+            window.WeixinJSBridge.invoke('imagePreview', {
+              urls: [dataUrl],
+              current: dataUrl
+            }, (res) => {
+              // 无论结果如何，不做额外处理（用户在原生预览中操作）
+              console.log('[微信保存] imagePreview 回调:', res);
+            });
+            this._showToast('已打开预览，长按图片可保存到相册');
+            finish();
+            return;
+          } catch (e) {
+            console.warn('[微信保存] imagePreview 失败:', e);
+          }
+        }
+
+        // WeixinJSBridge 不可用或失败 → 弹自定义预览
+        this._showWechatImagePreview(dataUrl);
+        finish();
+      };
+      reader.onerror = () => {
+        this._showSavePreview(blob, isImage);
+        finish();
+      };
+      reader.readAsDataURL(blob);
+    } else {
+      // 视频：微信无原生保存接口，弹预览 + 下载按钮 + 提示"用浏览器打开"
+      this._showSavePreview(blob, false);
+      finish();
+    }
+  }
+
+  /**
+   * 微信图片预览增强（WeixinJSBridge 不可用时的自定义预览）
+   * 比旧版 _showSavePreview 体验更好：更大的预览 + 更醒目的保存指引
+   */
+  _showWechatImagePreview(dataUrl) {
+    const oldOverlay = document.getElementById('save-preview-overlay');
+    if (oldOverlay) oldOverlay.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'save-preview-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.96);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;';
+    overlay.innerHTML = `
+      <div style="background:rgba(255,255,255,0.1);border-radius:12px;padding:16px 20px;margin-bottom:16px;text-align:center;">
+        <p style="color:#fff;font-size:15px;margin:0;line-height:1.8;font-weight:500;">长按图片 → 保存到手机</p>
+      </div>
+      <img style="max-width:94%;max-height:68vh;border-radius:10px;object-fit:contain;touch-action:auto;-webkit-touch-callout:default;-webkit-user-select:auto;user-select:auto;" src="${dataUrl}" />
+      <button class="save-preview-close" style="margin-top:20px;padding:12px 56px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:25px;font-size:15px;backdrop-filter:blur(4px);">关闭</button>
+    `;
+    document.body.appendChild(overlay);
+
+    const cleanup = () => { overlay.remove(); };
+    overlay.querySelector('.save-preview-close').addEventListener('click', cleanup);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
+  }
+
+  /**
+   * Android 腾讯新闻App / QQ / QQ浏览器 专用保存
+   * 策略：先尝试 <a download>（部分版本实际可用），500ms 后如果没成功再弹预览兜底
+   */
+  _saveInAndroidWebView(blob, filename, isImage, done) {
+    const finish = () => { if (done) done(); };
+
+    if (isImage) {
+      // 图片保存：直接弹出增强型预览（含 <a download> 保存按钮 + 长按保存提示）
+      this._showAndroidWebViewSaveDialog(blob, filename, true);
+      finish();
+    } else {
+      // 视频保存：弹预览 + 下载按钮
+      this._showSavePreview(blob, false);
+      finish();
+    }
+  }
+
+  /**
+   * Android WebView 增强保存对话框（腾讯新闻/QQ/QQ浏览器）
+   * 同时提供三种保存方式，确保至少一种能成功：
+   *   1. 点击"保存"按钮触发 <a download>
+   *   2. 长按图片保存
+   *   3. 提示"用浏览器打开"
+   */
+  _showAndroidWebViewSaveDialog(blob, filename, isImage) {
+    const oldOverlay = document.getElementById('save-preview-overlay');
+    if (oldOverlay) oldOverlay.remove();
+
+    const blobUrl = URL.createObjectURL(blob);
+
+    const overlay = document.createElement('div');
+    overlay.id = 'save-preview-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.96);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;';
+
+    if (isImage) {
+      // 图片：同时转 base64（长按保存用）并提供 <a download> 按钮
+      overlay.innerHTML = `
+        <img class="webview-save-img" style="max-width:94%;max-height:62vh;border-radius:10px;object-fit:contain;touch-action:auto;-webkit-touch-callout:default;-webkit-user-select:auto;user-select:auto;" />
+        <div style="display:flex;gap:12px;margin-top:20px;">
+          <a class="webview-download-btn" download="${filename}" style="display:inline-flex;align-items:center;gap:6px;padding:12px 28px;background:rgba(255,255,255,0.95);color:#333;border:none;border-radius:25px;font-size:15px;font-weight:500;text-decoration:none;cursor:pointer;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            保存图片
+          </a>
+          <button class="save-preview-close" style="padding:12px 28px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:25px;font-size:15px;">关闭</button>
+        </div>
+        <p style="color:rgba(255,255,255,0.6);font-size:12px;margin-top:14px;text-align:center;line-height:1.8;">
+          点击保存按钮 或 长按图片保存<br>
+          若均无效，可点右上角 <b style="color:rgba(255,255,255,0.8)">···</b> → <b style="color:rgba(255,255,255,0.8)">用浏览器打开</b>
+        </p>
+      `;
+      document.body.appendChild(overlay);
+
+      const img = overlay.querySelector('.webview-save-img');
+      const downloadBtn = overlay.querySelector('.webview-download-btn');
+
+      // 同时设置 blob URL 用于 <a download>
+      downloadBtn.href = blobUrl;
+
+      // 图片用 base64（长按保存兼容性更好）
+      const reader = new FileReader();
+      reader.onload = () => { img.src = reader.result; };
+      reader.readAsDataURL(blob);
+    } else {
+      // 视频（不太会走到这里，但保留兜底）
+      this._showSavePreview(blob, false);
+      return;
+    }
+
+    const cleanup = () => {
+      overlay.remove();
+      URL.revokeObjectURL(blobUrl);
+    };
+    overlay.querySelector('.save-preview-close').addEventListener('click', cleanup);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
+  }
+
+  /**
+   * 通用降级保存（非特殊 WebView 环境）
+   */
+  _fallbackSave(blob, filename, isImage, done) {
+    const finish = () => { if (done) done(); };
+
+    // === showSaveFilePicker（PC Chrome 86+ / Edge 86+）===
+    if (window.showSaveFilePicker) {
+      const mimeType = blob.type || (isImage ? 'image/png' : 'video/mp4');
+      const ext = filename.split('.').pop() || (isImage ? 'png' : 'mp4');
+      const description = isImage ? '图片文件' : '视频文件';
+      window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{
+          description,
+          accept: { [mimeType]: ['.' + ext] },
+        }],
+      }).then(async (handle) => {
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        this._showToast('已保存');
+        finish();
+      }).catch((err) => {
+        if (err.name !== 'AbortError') {
+          console.warn('showSaveFilePicker 失败，回退 <a download>:', err);
+          this._aDownloadSave(blob, filename);
+        }
+        finish();
+      });
+      return;
+    }
+
+    // === <a download> ===
+    this._aDownloadSave(blob, filename);
+    finish();
+  }
+
+  /**
+   * <a download> 方式保存文件
+   * 创建隐藏的 <a> 标签，设置 blob URL 和 download 属性，模拟点击触发下载
+   */
+  _aDownloadSave(blob, filename) {
+    try {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -733,14 +1034,16 @@ class CaptureManager {
       a.style.display = 'none';
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
-      this._showToast('已保存到文件');
-      return;
+      // 延迟清理，确保下载已触发
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 1000);
+      this._showToast('已保存');
+    } catch (e) {
+      console.warn('<a download> 失败:', e);
+      this._showToast('保存失败');
     }
-
-    // === 优先级 3：弹预览 + 指引（仅微信个人版会走到这里）===
-    this._showSavePreview(blob, isImage);
   }
 
   _isMobileDevice() {
@@ -748,10 +1051,11 @@ class CaptureManager {
   }
 
   /**
-   * 弹出保存预览（微信个人版兜底）
+   * 弹出保存预览（兜底方案）
+   * 图片：blob → base64 Data URL，安卓 WebView 才能长按保存
+   * 视频：提供下载按钮 + 长按提示双兜底
    */
   _showSavePreview(blob, isImage) {
-    const url = URL.createObjectURL(blob);
     const oldOverlay = document.getElementById('save-preview-overlay');
     if (oldOverlay) oldOverlay.remove();
 
@@ -759,39 +1063,60 @@ class CaptureManager {
     overlay.id = 'save-preview-overlay';
     overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.95);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;';
 
+    // blob URL 用于视频播放和下载按钮
+    let blobUrl = null;
+
     if (isImage) {
-      // 微信个人版：图片支持长按保存
+      // 图片：用 base64 Data URL，安卓 WebView 才支持长按保存
       overlay.innerHTML = `
         <p style="color:#fff;font-size:14px;margin-bottom:16px;text-align:center;line-height:1.7;opacity:0.85;">长按图片保存到相册</p>
-        <img style="max-width:92%;max-height:70vh;border-radius:8px;object-fit:contain;" />
+        <img style="max-width:92%;max-height:70vh;border-radius:8px;object-fit:contain;touch-action:auto;-webkit-touch-callout:default;-webkit-user-select:auto;user-select:auto;" />
         <button class="save-preview-close" style="margin-top:24px;padding:12px 48px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:25px;font-size:15px;">关闭</button>
       `;
       document.body.appendChild(overlay);
-      overlay.querySelector('img').src = url;
+
+      // blob → base64 Data URL（安卓 WebView 不支持 blob URL 长按保存）
+      const reader = new FileReader();
+      reader.onload = () => {
+        overlay.querySelector('img').src = reader.result;
+      };
+      reader.readAsDataURL(blob);
     } else {
-      // 微信个人版：视频无法直接保存
+      // 视频：播放预览 + 下载按钮 + 长按提示
+      blobUrl = URL.createObjectURL(blob);
+      const ext = (blob.type || '').includes('webm') ? 'webm' : 'mp4';
+      const filename = 'petals_' + Date.now() + '.' + ext;
       overlay.innerHTML = `
-        <video style="max-width:92%;max-height:60vh;border-radius:8px;background:#000;" autoplay loop playsinline webkit-playsinline controls></video>
-        <p style="color:rgba(255,255,255,0.75);font-size:13px;margin-top:16px;text-align:center;line-height:1.8;">
-          微信内暂不支持直接保存视频<br>
-          请点击右上角 <b style="color:#fff">···</b> → <b style="color:#fff">用浏览器打开</b><br>
-          在浏览器中可直接保存
+        <video style="max-width:92%;max-height:50vh;border-radius:8px;background:#000;touch-action:auto;" autoplay loop playsinline webkit-playsinline controls></video>
+        <div style="display:flex;gap:12px;margin-top:20px;">
+          <a class="save-preview-download" download="${filename}" style="display:inline-flex;align-items:center;gap:6px;padding:12px 32px;background:rgba(255,255,255,0.95);color:#333;border:none;border-radius:25px;font-size:15px;font-weight:500;text-decoration:none;cursor:pointer;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            保存视频
+          </a>
+          <button class="save-preview-close" style="padding:12px 32px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:25px;font-size:15px;cursor:pointer;">关闭</button>
+        </div>
+        <p style="color:rgba(255,255,255,0.6);font-size:12px;margin-top:14px;text-align:center;line-height:1.7;">
+          若点击保存无反应，可长按视频选择保存<br>
+          或点击右上角 <b style="color:rgba(255,255,255,0.8)">···</b> → <b style="color:rgba(255,255,255,0.8)">用浏览器打开</b>
         </p>
-        <button class="save-preview-close" style="margin-top:20px;padding:12px 48px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:25px;font-size:15px;">关闭</button>
       `;
       document.body.appendChild(overlay);
       const video = overlay.querySelector('video');
-      video.src = url;
+      video.src = blobUrl;
       video.play().catch(() => {});
+
+      // 下载按钮绑定 blob URL
+      const downloadBtn = overlay.querySelector('.save-preview-download');
+      downloadBtn.href = blobUrl;
     }
 
     const cleanup = () => {
       if (!isImage) {
         const v = overlay.querySelector('video');
-        if (v) v.pause();
+        if (v) { v.pause(); v.src = ''; }
       }
       overlay.remove();
-      URL.revokeObjectURL(url);
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
     };
     overlay.querySelector('.save-preview-close').addEventListener('click', cleanup);
     overlay.addEventListener('click', (e) => {
@@ -818,11 +1143,13 @@ class CaptureManager {
     // 录像用 1x 分辨率，避免性能瓶颈
     this._updateCanvasSize();
 
-    // 从合成 canvas 获取媒体流
-    const stream = this.compositeCanvas.captureStream(24);
+    const tier = this.deviceTier || 'high';
 
-    // 尝试添加音频（如果摄像头有音频轨道）
-    // 本项目 audio: false，所以一般没有音频
+    // 根据设备等级调整 captureStream 帧率
+    const streamFps = tier === 'low' ? 15 : 24;
+
+    // 从合成 canvas 获取媒体流
+    const stream = this.compositeCanvas.captureStream(streamFps);
 
     // 选择编码格式（优先 mp4，兼容性更好）
     const mimeTypes = [
@@ -845,11 +1172,14 @@ class CaptureManager {
       return;
     }
 
+    // 根据设备等级调整码率：low=2Mbps, medium=4Mbps, high=6Mbps
+    const bitrate = tier === 'low' ? 2000000 : (tier === 'medium' ? 4000000 : 6000000);
+
     try {
       this.recordedChunks = [];
       this.mediaRecorder = new MediaRecorder(stream, {
         mimeType: selectedMime,
-        videoBitsPerSecond: 6000000, // 6Mbps — 提高编码质量减少压缩卡顿感
+        videoBitsPerSecond: bitrate,
       });
 
       this.mediaRecorder.ondataavailable = (e) => {
@@ -867,20 +1197,30 @@ class CaptureManager {
         this._resetRecordingUI();
       };
 
-      // === 方案A: 录像时花瓣降到 80% ===
+      // === 方案A: 录像时花瓣降低 ===
+      // low 档降到 50%，medium 降到 65%，high 降到 80%
       const ps = this.particleSystem;
       if (ps && ps.petalData) {
         this._preRecordPetalCount = ps.petalData.length;
-        const reducedCount = Math.round(this._preRecordPetalCount * 0.8);
+        const petalRatio = tier === 'low' ? 0.5 : (tier === 'medium' ? 0.65 : 0.8);
+        const reducedCount = Math.round(this._preRecordPetalCount * petalRatio);
         ps.setPetalCount(reducedCount);
-        console.log(`[录像] 花瓣数: ${this._preRecordPetalCount} → ${reducedCount}`);
+        console.log(`[录像] 花瓣数: ${this._preRecordPetalCount} → ${reducedCount} (${tier})`);
       }
 
-      // === 方案C: 录像时降低分割蒙版分辨率（480→320，像素量减少55%）===
+      // === 合成跳帧：low/medium 档每 2 帧合成一次 ===
+      this._preRecordCompositeInterval = this._compositeInterval;
+      if (tier === 'low' || tier === 'medium') {
+        this._compositeInterval = 2;
+      }
+
+      // === 方案C: 录像时降低分割蒙版分辨率 ===
+      // low 档: 256（比320更小），medium/high: 320
       if (this.segmentation) {
         this._preRecordMaskRes = this.segmentation.maskResolution;
-        this.segmentation.maskResolution = 320;
-        console.log(`[录像] 蒙版分辨率: ${this._preRecordMaskRes} → 320`);
+        const maskRes = tier === 'low' ? 256 : 320;
+        this.segmentation.maskResolution = maskRes;
+        console.log(`[录像] 蒙版分辨率: ${this._preRecordMaskRes} → ${maskRes} (${tier})`);
       }
 
       // 先设 isRecording，再合成一帧，确保第一帧不是黑色
@@ -929,6 +1269,12 @@ class CaptureManager {
       this._preRecordPetalCount = null;
     }
 
+    // 恢复合成跳帧间隔
+    if (this._preRecordCompositeInterval !== undefined) {
+      this._compositeInterval = this._preRecordCompositeInterval;
+      this._preRecordCompositeInterval = undefined;
+    }
+
     // === 方案B: 恢复录像前的分割频率 ===
     if (this._preRecordFrameSkip !== null && this.segmentation) {
       this.segmentation.frameSkip = this._preRecordFrameSkip;
@@ -957,8 +1303,7 @@ class CaptureManager {
 
   /**
    * 花瓣系统每帧渲染完成后调用此方法（2D canvas 内容已就绪）
-   * 帧率节流：主循环 60fps，但 captureStream(24) 只需 24fps
-   * 每 2 帧合成一次（≈30fps），节省 ~50% 的合成开销
+   * 1-pass + 0.75x 优化后合成开销大幅减轻，每帧都合成
    */
   onFrameReady() {
     if (!this.isRecording) return;
@@ -985,6 +1330,14 @@ class CaptureManager {
 
     const mimeType = this.recordedChunks[0].type || 'video/mp4';
     const blob = new Blob(this.recordedChunks, { type: mimeType });
+
+    // blob 有效性检查：小于 10KB 视为录像失败
+    if (blob.size < 10240) {
+      console.warn(`[录像] blob 过小(${blob.size}B)，可能录像失败`);
+      this._showToast('录像失败，请重试');
+      return;
+    }
+
     const ext = mimeType.includes('webm') ? 'webm' : 'mp4';
     const filename = 'petals_' + this._timestamp() + '.' + ext;
 
@@ -1109,9 +1462,10 @@ class CaptureManager {
     overlay.querySelector('#video-preview-discard').addEventListener('touchend', discardHandler);
 
     // 保存（click + touchend 双绑）
+    // 注意：不调用 e.preventDefault()，避免消耗 user activation 导致 PC Chrome <a download> 被拦截
     let saveDone = false;
     const saveHandler = (e) => {
-      e.preventDefault(); e.stopPropagation();
+      e.stopPropagation();
       if (saveDone) return; saveDone = true;
       this._saveMedia(blob, filename, cleanup);
     };
