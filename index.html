@@ -18,11 +18,11 @@
   <!-- 启动引导页 -->
   <div id="landing" class="landing">
     <!-- 视频背景（poster 先行显示，视频加载后自动覆盖） -->
-    <video class="landing-video" autoplay muted loop playsinline webkit-playsinline x5-video-player-type="h5-page" x5-video-player-fullscreen="true" poster="start_poster.jpg">
+    <video class="landing-video" autoplay muted loop playsinline webkit-playsinline x5-video-player-type="h5-page" x5-video-player-fullscreen="true">
       <source src="https://mat1.gtimg.com/qqcdn/redian/petals_fall/start.mp4" type="video/mp4">
     </video>
-    <!-- 终极兜底：视频完全无法播放时显示静态背景图 -->
-    <img class="landing-poster-fallback" src="start_poster.jpg" alt="">
+    <!-- 终极兜底：视频无法播放时才显示静态背景图（初始隐藏） -->
+    <img class="landing-poster-fallback" src="start_poster.jpg" alt="" style="display:none;">
     <!-- 遮罩层 -->
     <div class="landing-overlay"></div>
     <!-- 腾讯新闻Logo -->

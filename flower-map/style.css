@@ -46,7 +46,8 @@ body {
   inset: 0;
   background-size: cover;
   background-position: center 60%;
-  opacity: 0.5;
+  opacity: 0.35;
+  filter: sepia(0.15) saturate(0.85) brightness(1.05);
 }
 
 .intro.fade-out {
@@ -106,33 +107,6 @@ body {
   50% { transform: translateY(8px); }
 }
 
-/* 开屏飘落花瓣 */
-.intro-petals {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-  z-index: 2;
-}
-
-.intro-petal {
-  position: absolute;
-  border-radius: 50% 0 50% 50%;
-  animation: petalFall linear infinite;
-  top: -50px;
-}
-
-@keyframes petalFall {
-  0% {
-    transform: translateY(0) rotate(0deg) translateX(0);
-    opacity: 0.7;
-  }
-  100% {
-    transform: translateY(110vh) rotate(360deg) translateX(60px);
-    opacity: 0;
-  }
-}
-
 /* ============================================
    主地图区域
    ============================================ */
@@ -160,9 +134,23 @@ body {
 }
 
 /* ============================================
-   SVG 路线
+   SVG 路线（视觉隐藏，保留布局用于路径计算）
    ============================================ */
 .route-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+  visibility: hidden;
+}
+
+/* ============================================
+   花瓣轨迹（替代虚线路径）
+   ============================================ */
+.petal-trail {
   position: absolute;
   top: 0;
   left: 0;
@@ -172,18 +160,55 @@ body {
   z-index: 1;
 }
 
-.route-path {
-  stroke: #c4a882;
-  stroke-width: 3;
-  stroke-dasharray: 12 8;
-  stroke-linecap: round;
-  filter: url(#crayon);
-  opacity: 0.6;
+.trail-petal {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  opacity: 0;
+  pointer-events: none;
+  transition: none;
+  will-change: opacity, transform;
 }
 
-.route-path.animate {
-  stroke-dashoffset: 0;
-  transition: stroke-dashoffset 2s ease;
+.trail-petal img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.trail-petal.visible {
+  animation: petalAppear 0.8s ease forwards;
+}
+
+/* 花瓣持续轻微摇摆 */
+.trail-petal.floating {
+  animation: petalFloat 3s ease-in-out infinite;
+}
+
+@keyframes petalAppear {
+  0% {
+    opacity: 0;
+    transform: scale(0.3) rotate(0deg);
+  }
+  60% {
+    opacity: 0.7;
+    transform: scale(1.1) rotate(10deg);
+  }
+  100% {
+    opacity: var(--petal-opacity, 0.55);
+    transform: scale(1) rotate(var(--petal-rot, 0deg));
+  }
+}
+
+@keyframes petalFloat {
+  0%, 100% {
+    transform: scale(1) rotate(var(--petal-rot, 0deg)) translateY(0);
+    opacity: var(--petal-opacity, 0.55);
+  }
+  50% {
+    transform: scale(1.05) rotate(calc(var(--petal-rot, 0deg) + 8deg)) translateY(-2px);
+    opacity: calc(var(--petal-opacity, 0.55) + 0.1);
+  }
 }
 
 /* ============================================
@@ -220,17 +245,18 @@ body {
 .city-node[data-index="7"] { align-items: flex-end; padding-right: 8%; }
 
 /* ============================================
-   氛围色带 — 花对应色的淡雅渐变
+   氛围色带 — 花对应色的淡雅渐变（用 box-shadow 实现）
    ============================================ */
 .city-aura {
   position: absolute;
-  top: -20px;
+  top: 40px;
   left: 50%;
   transform: translateX(-50%);
-  width: 260px;
-  height: 340px;
+  width: 1px;
+  height: 1px;
   border-radius: 50%;
-  background: radial-gradient(ellipse, var(--aura-color) 0%, transparent 70%);
+  background: transparent;
+  box-shadow: 0 0 80px 60px var(--aura-color);
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.8s ease 0.2s;
@@ -286,16 +312,17 @@ body {
   transition: opacity 0.6s ease, transform 0.7s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-/* 绽放光晕 */
+/* 绽放光晕（用 box-shadow 实现，截图兼容） */
 .bloom-glow {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%) scale(0);
-  width: 160px;
-  height: 160px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  background: radial-gradient(circle, var(--glow-color) 0%, transparent 70%);
+  background: transparent;
+  box-shadow: 0 0 40px 30px var(--glow-color);
   opacity: 0;
   transition: opacity 0.8s ease, transform 0.8s ease;
   pointer-events: none;
@@ -471,15 +498,14 @@ body {
 }
 
 /* ============================================
-   花瓣粒子画布
+   花瓣粒子画布（absolute，跟随 map-container 滚动）
    ============================================ */
 .particle-canvas {
-  position: fixed;
-  inset: 0;
+  position: absolute;
+  top: 0;
+  left: 0;
   z-index: 50;
   pointer-events: none;
-  width: 100%;
-  height: 100%;
 }
 
 /* ============================================
@@ -577,17 +603,49 @@ body {
 }
 
 /* ============================================
-   尾部自动过渡全屏覆盖
+   花瓣雨 iframe（底层，用于渐变过渡）
+   ============================================ */
+.outro-iframe {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 998;
+  border: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.outro-iframe.ready {
+  opacity: 1;
+}
+
+.outro-iframe.interactive {
+  opacity: 1;
+  pointer-events: auto;
+  z-index: 1001;
+}
+
+/* ============================================
+   尾部过渡：「不摇树的花雨」
    ============================================ */
 .outro-overlay {
   position: fixed;
   inset: 0;
   z-index: 999;
   background: #fbecd2;
-  transition: opacity 1.2s ease;
+  opacity: 0;
+  transition: opacity 1s ease;
+  overflow: hidden;
 }
 
-.outro-bg-img {
+.outro-overlay.visible {
+  opacity: 1;
+}
+
+/* 彩铅背景层 */
+.outro-bg {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -596,9 +654,90 @@ body {
   object-position: center bottom;
 }
 
-/* A 在上，B 在下 */
-.outro-img-front { z-index: 2; }
-.outro-img-back { z-index: 1; }
+.outro-bg-front { z-index: 1; opacity: 1; }
+.outro-bg-back { z-index: 0; opacity: 0; }
+
+/* 多点笔触揭示：线稿/彩铅通过 JS 动态设置 mask 多点扩散 */
+.outro-bg.brush-reveal {
+  z-index: 2;
+  opacity: 1;
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 100%, transparent 100%);
+  mask-image: radial-gradient(circle at 50% 50%, transparent 100%, transparent 100%);
+}
+
+.outro-bg.color-spread {
+  z-index: 3;
+  opacity: 1;
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 100%, transparent 100%);
+  mask-image: radial-gradient(circle at 50% 50%, transparent 100%, transparent 100%);
+}
+
+/* 文案层：三句同屏竖排 */
+.outro-text-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 32px;
+  gap: 16px;
+}
+
+.outro-line {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.8s ease, transform 0.8s ease;
+  text-align: center;
+  line-height: 1.5;
+  letter-spacing: 0.15em;
+  text-shadow: 0 2px 12px rgba(251,236,210,0.9), 0 0 20px rgba(251,236,210,0.6);
+}
+
+.outro-line.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.outro-line.fade-out {
+  opacity: 0;
+  transform: translateY(-10px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+/* 第一句：核心主张 — 大号有力量 */
+.outro-line-1 {
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: #5a6e4a;
+  text-shadow: 0 2px 12px rgba(251,236,210,0.9), 0 1px 8px rgba(90, 110, 74, 0.2);
+}
+
+/* 第二句：引出花雨 — 轻柔飘逸 */
+.outro-line-2 {
+  font-size: 1.4rem;
+  font-weight: 500;
+  color: #b87070;
+  text-shadow: 0 2px 12px rgba(251,236,210,0.9), 0 1px 6px rgba(184,112,112,0.15);
+}
+
+/* 第三句：环保点睛 — 小字耳语 */
+.outro-line-3 {
+  font-size: 0.95rem;
+  font-weight: 400;
+  color: #8a7a68;
+  letter-spacing: 0.2em;
+  margin-top: 4px;
+  text-shadow: 0 2px 12px rgba(251,236,210,0.9);
+}
+
+/* overlay 渐变消散：露出底下的花瓣雨 iframe */
+.outro-overlay.dissolve {
+  opacity: 0;
+  transition: opacity 1.5s ease;
+  pointer-events: none;
+}
 
 /* ============================================
    绽放粒子效果

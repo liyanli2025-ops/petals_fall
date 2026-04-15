@@ -17,7 +17,6 @@
   <!-- 开屏动画 -->
   <div id="intro" class="intro">
     <div class="intro-bg" style="background-image: url(img/1.jpg);"></div>
-    <div class="intro-petals"></div>
     <div class="intro-content">
       <img class="intro-logo" src="https://mat1.gtimg.com/qqcdn/redian/petals_fall/logo1.png" alt="局部地区有花雨">
       <div class="intro-arrow">
@@ -34,16 +33,18 @@
     <!-- 纸张纹理背景 -->
     <div class="paper-bg"></div>
 
-    <!-- SVG 路线 -->
-    <svg id="route-svg" class="route-svg" viewBox="0 0 375 4800" preserveAspectRatio="xMidYMin meet">
+    <!-- SVG 路线（隐藏，仅用于路径计算） -->
+    <svg id="route-svg" class="route-svg" viewBox="0 0 375 4800" preserveAspectRatio="xMidYMin meet" style="pointer-events:none;">
       <defs>
         <filter id="crayon" x="-5%" y="-5%" width="110%" height="110%">
           <feTurbulence type="turbulence" baseFrequency="0.04" numOctaves="4" result="noise" seed="2"/>
           <feDisplacementMap in="SourceGraphic" in2="noise" scale="3" xChannelSelector="R" yChannelSelector="G"/>
         </filter>
       </defs>
-      <path id="main-route" class="route-path" d="" fill="none" stroke="#c4a882" stroke-width="3" stroke-dasharray="12 8" filter="url(#crayon)"/>
+      <path id="main-route" class="route-path" d="" fill="none" stroke="none"/>
     </svg>
+    <!-- 花瓣轨迹容器（沿路径散布的花瓣） -->
+    <div id="petal-trail" class="petal-trail"></div>
 
     <!-- 城市节点 -->
     <div id="cities" class="cities">
@@ -232,7 +233,7 @@
       </div>
     </div>
 
-    <!-- 花瓣粒子画布 -->
+    <!-- 花瓣粒子画布（absolute，跟随页面滚动） -->
     <canvas id="particle-canvas" class="particle-canvas"></canvas>
 
     <!-- 进度指示 -->
@@ -252,10 +253,20 @@
 
   </div>
 
-  <!-- 自动过渡全屏容器 -->
+  <!-- 花瓣雨 iframe（底层预加载，用于渐变过渡） -->
+  <iframe id="outro-iframe" class="outro-iframe" src="" frameborder="0" allowtransparency="true"></iframe>
+
+  <!-- 尾部过渡：「不摇树的花雨」 -->
   <div id="outro-overlay" class="outro-overlay" style="display:none;">
-    <img id="outro-img-a" class="outro-bg-img outro-img-front" src="" alt="">
-    <img id="outro-img-b" class="outro-bg-img outro-img-back" src="" alt="">
+    <!-- 彩铅背景 A/B crossfade -->
+    <img id="outro-bg-a" class="outro-bg outro-bg-front" src="" alt="">
+    <img id="outro-bg-b" class="outro-bg outro-bg-back" src="" alt="">
+    <!-- 文案层：三句同屏 -->
+    <div class="outro-text-layer">
+      <div id="outro-line1" class="outro-line outro-line-1">赏花不摇树</div>
+      <div id="outro-line2" class="outro-line outro-line-2">花雨 说下就下</div>
+      <div id="outro-line3" class="outro-line outro-line-3">给地球一场不打扰的浪漫</div>
+    </div>
   </div>
 
   <script charset="utf-8" src="app.js"></script>
