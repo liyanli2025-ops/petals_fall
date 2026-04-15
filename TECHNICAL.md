@@ -1067,3 +1067,82 @@ if (cosAngle < 0) {
 - **无视觉跳变**：近景花瓣有宽松阈值 + 距离门槛，用户正常转头时边缘花瓣不会突然消失
 - **性能零开销**：每帧只多一次 `getWorldDirection()` + 每颗花瓣一次点积运算（纯数学，无分配）
 - **水平远方花瓣完全保留**：角度判定是相对于相机朝向，沿视线看远方的花瓣 cosAngle ≈ 1.0，远超阈值
+
+---
+
+## 十三、安卓微信图片/视频保存限制与录像按钮隐藏（2026-04-13）
+
+### 1. 安卓微信保存图片 — 各方案验证结论
+
+在微信个人版（Android/鸿蒙）WebView 环境下，纯前端保存图片的各种方案均存在严重问题：
+
+| 方案 | 结果 | 根本原因 |
+|------|------|---------|
+| `<a download>` | 被拦截，跳空白页 | 微信故意屏蔽了 download 属性 |
+| `navigator.share()` | 弹出"选择打开方式"（华为系） | 华为微信实现的是系统 Intent，不是保存 |
+| `WeixinJSBridge.invoke('imagePreview')` | 传 blob/data URL 黑屏卡死 | 只支持真实的 https 图片 URL |
+| 长按 blob URL `<img>` | 弹保存弹窗但保存失败 | 微信无法解析 blob: 协议 |
+| 长按 data URL `<img>` | 部分版本可成功 | 取决于微信版本和内核，不稳定 |
+
+**当前兜底方案**：全屏展示 data URL 图片 + 提示截屏保存。
+
+⚠️ **重要结论：长按 data URL 图片保存在大多数安卓微信版本中不可靠**（很多版本长按根本不弹出保存菜单），不应作为推荐的保存方式引导用户。**截屏是安卓微信内唯一 100% 可靠的图片保存方式**。
+
+data URL 相比 blob URL 的优势仅在于：部分版本有概率能长按保存成功，但不能依赖。在纯前端 + 不上传 + 不花钱的约束下，安卓微信的图片保存问题无完美解决方案。
+
+**可靠但需后端的方案**：接入微信 JS-SDK + 图片上传到 COS → 拿到真实 HTTPS URL → `wx.previewImage` → 微信原生图片查看器 → 用户长按保存（100% 可靠）。但需要：
+- 引入 `jweixin-1.6.0.js` + `wx.config` 签名
+- 搭建图片上传接口（如腾讯云 COS 直传）
+- 后端签名服务（给 JS-SDK 和 COS 上传做鉴权）
+
+### 2. 安卓端录像保存 — 问题更严重
+
+安卓端录像保存比图片更困难，主要问题：
+
+| 问题 | 说明 |
+|------|------|
+| **MP4 编码支持不统一** | Android WebView 对 `MediaRecorder` 的 `video/mp4;codecs=avc1` 支持参差不齐，很多只支持 webm |
+| **webm 格式兼容差** | 微信/QQ 内置播放器不支持 webm，用户保存后打不开 |
+| **视频保存全部失败** | `<a download>`、`navigator.share`、长按视频保存 在微信内均不可靠 |
+| **微信无原生视频保存接口** | 不像图片有 `imagePreview`，视频没有对应的原生 API |
+| **文件体积大** | 视频文件 MB 级别，blob URL 的 download 更容易超时失败 |
+
+### 3. 决策：安卓端隐藏录像按钮
+
+鉴于安卓端录像保存体验极差且无可靠的纯前端解决方案，决定**在安卓端（含鸿蒙）隐藏录像按钮**，仅保留拍照功能。
+
+**实现方式**（`capture.js` `init()` 方法中）：
+
+```javascript
+const isAndroidLike = /Android|OpenHarmony|HarmonyOS/i.test(navigator.userAgent);
+if (isAndroidLike && this.$btnRecord) {
+  this.$btnRecord.parentElement.style.display = 'none';
+}
+```
+
+**影响范围**：
+- Android 所有浏览器（Chrome、微信、QQ、腾讯新闻等）
+- 鸿蒙系统（OpenHarmony / HarmonyOS）
+- iOS 端不受影响，录像功能正常保留（iOS 的 `navigator.share` 对视频保存可靠）
+- PC 端不受影响
+
+### 4. 各平台拍照/录像功能可用性总览
+
+| 平台 | 拍照 | 录像 | 保存方式 |
+|------|------|------|---------|
+| **iOS Safari** | ✅ | ✅ | `navigator.share` → 系统面板保存相册 |
+| **iOS 微信** | ✅（长按/截屏兜底） | ✅ | `navigator.share` 或微信保存兜底 |
+| **Android Chrome** | ✅ | ❌ 隐藏 | `navigator.share` → 系统面板 |
+| **Android 微信** | ✅（截屏兜底） | ❌ 隐藏 | 全屏 data URL + 截屏（长按保存不可靠） |
+| **Android QQ/腾讯新闻** | ✅ | ❌ 隐藏 | `<a download>` + 长按兜底 |
+| **PC Chrome/Edge** | ✅ | ✅ | `showSaveFilePicker` / `<a download>` |
+| **PC 其他浏览器** | ✅ | ✅ | `<a download>` |
+
+### 5. 经验教训
+
+1. **微信 WebView 是最受限的环境**：微信对文件操作（下载、保存、分享）有层层限制，纯前端无法绕过
+2. **blob URL 和 data URL 在微信中行为不同**：blob URL 长按保存几乎总是失败，data URL 成功率略高
+3. **`navigator.share()` 在安卓微信中不等于保存**：它会弹出系统"选择打开方式"弹窗，而不是保存到相册
+4. **`WeixinJSBridge` 不接受本地生成的 URL**：`imagePreview` 只接受可公网访问的 HTTPS URL，blob/data URL 会导致黑屏卡死
+5. **视频保存比图片难一个量级**：图片至少还能长按/截屏兜底，视频在微信内几乎无解
+6. **不如直接隐藏不可靠功能**：与其给用户一个看起来能用但实际保存不了的录像按钮，不如直接隐藏，避免挫败感

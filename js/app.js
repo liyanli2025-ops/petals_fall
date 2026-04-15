@@ -422,6 +422,22 @@
   // UI 事件
   // ============================================
   function bindEvents() {
+    // === 协议勾选控制按钮状态 ===
+    const $agreeCheckbox = document.getElementById('agree-checkbox');
+    const $agreementLabel = document.getElementById('landing-agreement');
+
+    function updateBtnState() {
+      $btnStart.disabled = !$agreeCheckbox.checked;
+      // 同步 pointer-events（iOS 某些版本 disabled 按钮仍可触摸）
+      $btnStart.style.pointerEvents = $agreeCheckbox.checked ? 'auto' : 'none';
+    }
+
+    if ($agreeCheckbox) {
+      $agreeCheckbox.addEventListener('change', updateBtnState);
+      // 初始化状态
+      updateBtnState();
+    }
+
     // 关键：同时绑定 click 和 touchend
     // iOS Safari 上 touchend 比 click 更可靠地传递 user activation
     const startHandler = (e) => {
@@ -482,8 +498,12 @@
     document.addEventListener('touchstart', (e) => {
       // 不阻止 UI 按钮及其子元素（SVG/path 等）的触摸
       const el = e.target;
-      if (el.tagName === 'INPUT' || el.tagName === 'BUTTON' || el.closest('.ui-btn') || el.closest('.petal-control')
-        || el.closest('.photo-preview-btn') || el.closest('.photo-preview-overlay') || el.closest('.save-preview-close')) {
+      if (el.tagName === 'INPUT' || el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'LABEL'
+        || el.closest('.ui-btn') || el.closest('.petal-control')
+        || el.closest('.landing-agreement')
+        || el.closest('.agreement-modal')
+        || el.closest('.photo-preview-btn') || el.closest('.photo-preview-overlay') || el.closest('.save-preview-close')
+        || el.closest('#poster-overlay-wx')) {
         return;
       }
       e.preventDefault();
@@ -496,6 +516,31 @@
 
   function init() {
     bindEvents();
+
+    // === ?auto=1 参数：跳过开屏装饰，只显示一个「进入AR」按钮 ===
+    var urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('auto') === '1') {
+      // 隐藏开屏页的所有装饰元素（视频、logo、副标题、描述、协议、提示）
+      var landingContent = document.querySelector('.landing-content');
+      if (landingContent) {
+        // 隐藏除按钮外的所有子元素
+        var children = landingContent.children;
+        for (var ci = 0; ci < children.length; ci++) {
+          if (children[ci] !== $btnStart) {
+            children[ci].style.display = 'none';
+          }
+        }
+      }
+      // 自动勾选协议
+      var cb = document.getElementById('agree-checkbox');
+      if (cb) cb.checked = true;
+      // 启用按钮，改文字
+      $btnStart.disabled = false;
+      $btnStart.style.pointerEvents = 'auto';
+      $btnStart.style.cssText = 'pointer-events:auto;padding:18px 56px;font-size:1.2rem;';
+      $btnStart.innerHTML = '<span>点击开启 AR 花瓣雨</span>';
+      return;
+    }
 
     // 显示协议提示（帮助用户理解为什么权限不弹）
     const proto = window.location.protocol;

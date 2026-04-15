@@ -81,6 +81,15 @@ class CaptureManager {
     this.$flash = document.getElementById('capture-flash');
     this.$toast = document.getElementById('capture-toast');
 
+    // === 安卓端隐藏录像按钮 ===
+    // 安卓微信/浏览器中录像保存极不稳定（webm 格式兼容差、MP4 编码支持参差不齐、
+    // 微信内 <a download> / navigator.share 对视频均不可靠），体验远差于拍照，故直接隐藏
+    const isAndroidLike = /Android|OpenHarmony|HarmonyOS/i.test(navigator.userAgent);
+    if (isAndroidLike && this.$btnRecord) {
+      this.$btnRecord.parentElement.style.display = 'none';
+      console.log('[Capture] 安卓端：录像按钮已隐藏');
+    }
+
     // 同时绑定 click 和 touchend（iOS Safari 兼容），用防重避免双触发
     let lastPhotoTime = 0;
     const photoHandler = (e) => {
@@ -94,6 +103,10 @@ class CaptureManager {
     this.$btnPhoto.addEventListener('click', photoHandler);
     this.$btnPhoto.addEventListener('touchend', photoHandler);
 
+    // 安卓端不绑定录像事件
+    if (isAndroidLike) {
+      // 跳过录像按钮事件绑定
+    } else {
     let lastRecordTime = 0;
     const recordHandler = (e) => {
       e.preventDefault();
@@ -105,6 +118,7 @@ class CaptureManager {
     };
     this.$btnRecord.addEventListener('click', recordHandler);
     this.$btnRecord.addEventListener('touchend', recordHandler);
+    }
 
     // 从粒子系统获取 mid+near 合并层离屏 canvas
     if (this.particleSystem && this.particleSystem.displayLayers.midNear) {
@@ -572,7 +586,7 @@ class CaptureManager {
     // 移动端保持 2x DPR，不做提升（3x 导致合成慢 + 图片大 + 保存卡）
     let dprRestored = false;
     const ps = this.particleSystem;
-    const isMobileShot = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+    const isMobileShot = /Mobi|Android|iPhone|iPad|OpenHarmony|HarmonyOS/i.test(navigator.userAgent);
     if (ps && ps.renderer && !this.isRecording && !isMobileShot) {
       const nativeDPR = Math.min(window.devicePixelRatio || 1, 3);
       const currentDPR = ps.renderer.getPixelRatio();
@@ -639,26 +653,38 @@ class CaptureManager {
     const imgExt = isMobileShot ? '.jpg' : '.png';
     const filename = 'petals_' + this._timestamp() + imgExt;
 
-    // JPEG 质量：低端机 0.7（减小体积40-60%），中端机 0.85，高端机 0.92
-    const jpegQuality = tier === 'low' ? 0.70 : (tier === 'medium' ? 0.85 : 0.92);
+    // JPEG 质量：低端机 0.5（极致压缩），中端机 0.85，高端机 0.92
+    const jpegQuality = tier === 'low' ? 0.50 : (tier === 'medium' ? 0.85 : 0.92);
 
-    // 导出 blob → 弹出预览界面（带超时保护）
+    // 导出 blob → 弹出预览界面（带分级超时保护）
     try {
       let blobDone = false;
 
-      // 超时保护：5 秒后如果 toBlob 还没返回，提示用户
-      const blobTimeout = setTimeout(() => {
+      // 软超时：提示正在处理（不放弃）
+      const softTimeoutMs = tier === 'low' ? 8000 : (tier === 'medium' ? 6000 : 5000);
+      // 硬超时：真正放弃
+      const hardTimeoutMs = tier === 'low' ? 20000 : (tier === 'medium' ? 15000 : 10000);
+
+      const softTimer = setTimeout(() => {
+        if (!blobDone) {
+          console.log('[拍照] toBlob 软超时，提示等待');
+          this._showToast('正在合成图片，请稍候...');
+        }
+      }, softTimeoutMs);
+
+      const hardTimer = setTimeout(() => {
         if (!blobDone) {
           blobDone = true;
-          console.warn('[拍照] toBlob 超时 (5s)');
+          console.warn(`[拍照] toBlob 硬超时 (${hardTimeoutMs}ms)`);
           this._showToast('图片合成超时，请重试');
         }
-      }, 5000);
+      }, hardTimeoutMs);
 
       this.compositeCanvas.toBlob((blob) => {
-        if (blobDone) return; // 已超时，忽略回调
+        if (blobDone) return; // 已硬超时，忽略回调
         blobDone = true;
-        clearTimeout(blobTimeout);
+        clearTimeout(softTimer);
+        clearTimeout(hardTimer);
 
         if (!blob) {
           this._showToast('拍照失败: 图片生成为空');
@@ -690,6 +716,10 @@ class CaptureManager {
   _showPhotoPreview(blob, filename) {
     const imgUrl = URL.createObjectURL(blob);
 
+    // 检测是否为安卓微信个人版
+    const env = this._detectEnv();
+    const isAndroidWechat = env.isAndroidLike && env.isWxPersonal;
+
     // 清理之前的预览
     const oldOverlay = document.getElementById('photo-preview-overlay');
     if (oldOverlay) oldOverlay.remove();
@@ -697,6 +727,22 @@ class CaptureManager {
     const overlay = document.createElement('div');
     overlay.id = 'photo-preview-overlay';
     overlay.className = 'photo-preview-overlay';
+
+    // 安卓微信：「全屏查看」按钮 + 提示文案；其他环境：「保存」按钮
+    const saveBtnHtml = isAndroidWechat
+      ? `<button class="photo-preview-btn photo-preview-btn-primary" id="photo-preview-save">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>
+          <span>全屏查看</span>
+        </button>`
+      : `<button class="photo-preview-btn photo-preview-btn-primary" id="photo-preview-save">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>保存</span>
+        </button>`;
+
+    const hintHtml = isAndroidWechat
+      ? `<p class="photo-preview-hint" style="color:rgba(255,255,255,0.5);font-size:11px;text-align:center;margin:8px 0 0;line-height:1.6;">受系统限制暂不支持直接保存，请截屏或从浏览器打开</p>`
+      : '';
+
     overlay.innerHTML = `
       <div class="photo-preview-frame">
         <img class="photo-preview-img" />
@@ -706,11 +752,9 @@ class CaptureManager {
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
           <span>重拍</span>
         </button>
-        <button class="photo-preview-btn photo-preview-btn-primary" id="photo-preview-save">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          <span>保存</span>
-        </button>
+        ${saveBtnHtml}
       </div>
+      ${hintHtml}
     `;
     document.body.appendChild(overlay);
 
@@ -741,16 +785,55 @@ class CaptureManager {
     overlay.querySelector('#photo-preview-retake').addEventListener('click', retakeHandler);
     overlay.querySelector('#photo-preview-retake').addEventListener('touchend', retakeHandler);
 
-    // 保存（click + touchend 双绑）
-    // 注意：不调用 e.preventDefault()，避免消耗 user activation 导致 PC Chrome <a download> 被拦截
+    // 保存/全屏查看（click + touchend 双绑）
     let saveDone = false;
     const saveHandler = (e) => {
       e.stopPropagation();
       if (saveDone) return; saveDone = true;
-      this._savePhoto(blob, filename, cleanup);
+      if (isAndroidWechat) {
+        // 安卓微信：全屏查看图片（纯净模式，触摸关闭）
+        this._showFullscreenImage(blob);
+        cleanup();
+      } else {
+        this._savePhoto(blob, filename, cleanup);
+      }
     };
     overlay.querySelector('#photo-preview-save').addEventListener('click', saveHandler);
     overlay.querySelector('#photo-preview-save').addEventListener('touchend', saveHandler);
+  }
+
+  /**
+   * 纯净全屏查看图片（安卓微信专用）
+   * 全屏黑底展示图片，无任何引导文字和按钮，触摸屏幕即关闭
+   * @param {Blob} blob - 图片 Blob
+   */
+  _showFullscreenImage(blob) {
+    const old = document.getElementById('fullscreen-image-overlay');
+    if (old) old.remove();
+
+    const imgSrc = URL.createObjectURL(blob);
+
+    const overlay = document.createElement('div');
+    overlay.id = 'fullscreen-image-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:999999;background:#000;display:flex;align-items:center;justify-content:center;cursor:pointer;';
+
+    const img = document.createElement('img');
+    img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;pointer-events:none;';
+    img.src = imgSrc;
+    overlay.appendChild(img);
+
+    document.body.appendChild(overlay);
+
+    // 触摸/点击屏幕即关闭
+    const close = () => {
+      overlay.remove();
+      URL.revokeObjectURL(imgSrc);
+    };
+    overlay.addEventListener('click', close);
+    overlay.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      close();
+    });
   }
 
   /**
@@ -767,10 +850,14 @@ class CaptureManager {
     if (this._envCache) return this._envCache;
     const ua = navigator.userAgent;
     const isAndroid = /Android/i.test(ua);
+    const isHarmony = /OpenHarmony|HarmonyOS/i.test(ua);
     const isWx = /MicroMessenger/i.test(ua);
     const isWxWork = /wxwork/i.test(ua);
     this._envCache = {
       isAndroid,
+      isHarmony,
+      // 鸿蒙系统按 Android 类似路径处理（鸿蒙 NEXT UA 不含 Android 字段）
+      isAndroidLike: isAndroid || isHarmony,
       isWxPersonal: isWx && !isWxWork,
       isWxWork: isWx && isWxWork,
       isQQNews: /qqnews/i.test(ua),
@@ -778,7 +865,7 @@ class CaptureManager {
       isQQBrowser: /QQBrowser/i.test(ua),
       isTBS: /TBS\//i.test(ua) || /Xweb\//i.test(ua),
       isWindows: /Windows/i.test(ua),
-      isMobile: /Mobi|Android|iPhone|iPad|iPod/i.test(ua),
+      isMobile: /Mobi|Android|iPhone|iPad|iPod|OpenHarmony|HarmonyOS/i.test(ua),
     };
     return this._envCache;
   }
@@ -797,31 +884,52 @@ class CaptureManager {
     const done = () => { if (onDone) onDone(); };
     const mimeType = blob.type || (filename.endsWith('.png') ? 'image/png' : 'video/mp4');
     const isImage = mimeType.startsWith('image/');
+    // 清除环境缓存，强制重新检测
+    this._envCache = null;
     const env = this._detectEnv();
 
-    // === Android 微信个人版：专用路径 ===
-    if (env.isAndroid && env.isWxPersonal) {
+    console.log('[保存] 环境:', JSON.stringify(env), 'isImage:', isImage, 'mime:', mimeType);
+
+    // === 微信个人版（Android/鸿蒙/iOS 都走此路径）===
+    if (env.isWxPersonal) {
       this._saveInWechat(blob, filename, isImage, done);
       return;
     }
 
-    // === Android 腾讯新闻App / QQ / QQ浏览器：尝试 <a download>，失败弹预览 ===
-    if (env.isAndroid && (env.isQQNews || env.isQQ || env.isQQBrowser || env.isTBS)) {
+    // === Android / 鸿蒙 腾讯新闻App / QQ / QQ浏览器：尝试 <a download>，失败弹预览 ===
+    if (env.isAndroidLike && (env.isQQNews || env.isQQ || env.isQQBrowser || env.isTBS)) {
       this._saveInAndroidWebView(blob, filename, isImage, done);
       return;
     }
 
-    // Windows 桌面端跳过 navigator.share（弹共享面板体验差）
-    if (!env.isWindows) {
+    // Windows 桌面端 和 微信环境 跳过 navigator.share
+    if (!env.isWindows && !env.isWxPersonal && !env.isWxWork) {
       try {
         const file = new File([blob], filename, { type: mimeType });
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          done();
+          let shareSettled = false;
+          // 超时保护：5 秒无响应则 fallback
+          const shareTimeout = setTimeout(() => {
+            if (!shareSettled) {
+              shareSettled = true;
+              console.warn('[保存] navigator.share 超时 5s，降级');
+              this._fallbackSave(blob, filename, isImage, done);
+            }
+          }, 5000);
           navigator.share({ files: [file] }).then(() => {
+            if (shareSettled) return;
+            shareSettled = true;
+            clearTimeout(shareTimeout);
             this._showToast('已保存');
+            done();
           }).catch((err) => {
+            if (shareSettled) return;
+            shareSettled = true;
+            clearTimeout(shareTimeout);
             if (err.name !== 'AbortError') {
               this._fallbackSave(blob, filename, isImage, done);
+            } else {
+              done(); // 用户主动取消
             }
           });
           return;
@@ -839,69 +947,163 @@ class CaptureManager {
    * 视频：弹预览 + 下载按钮（微信对视频无原生保存接口）
    */
   _saveInWechat(blob, filename, isImage, done) {
+    // 此方法会被 index.html 内联补丁覆盖
+    // 这里是 fallback：直接弹截屏保存界面
     const finish = () => { if (done) done(); };
-
     if (isImage) {
-      // 图片转 base64 data URL
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result;
-
-        // 尝试 WeixinJSBridge 原生预览（用户在微信原生预览中可直接保存到相册）
-        if (window.WeixinJSBridge) {
-          try {
-            window.WeixinJSBridge.invoke('imagePreview', {
-              urls: [dataUrl],
-              current: dataUrl
-            }, (res) => {
-              // 无论结果如何，不做额外处理（用户在原生预览中操作）
-              console.log('[微信保存] imagePreview 回调:', res);
-            });
-            this._showToast('已打开预览，长按图片可保存到相册');
-            finish();
-            return;
-          } catch (e) {
-            console.warn('[微信保存] imagePreview 失败:', e);
-          }
-        }
-
-        // WeixinJSBridge 不可用或失败 → 弹自定义预览
-        this._showWechatImagePreview(dataUrl);
-        finish();
-      };
-      reader.onerror = () => {
-        this._showSavePreview(blob, isImage);
-        finish();
-      };
-      reader.readAsDataURL(blob);
-    } else {
-      // 视频：微信无原生保存接口，弹预览 + 下载按钮 + 提示"用浏览器打开"
-      this._showSavePreview(blob, false);
+      this._showScreenshotSave(blob);
       finish();
+    } else {
+      this._showWechatVideoSave(blob, filename, finish);
     }
   }
 
   /**
-   * 微信图片预览增强（WeixinJSBridge 不可用时的自定义预览）
-   * 比旧版 _showSavePreview 体验更好：更大的预览 + 更醒目的保存指引
+   * 截屏保存界面（微信内终极兜底）
+   * @param {Blob|string} blobOrUrl - 可以是 Blob 对象、blob URL 字符串或 data URL 字符串
    */
-  _showWechatImagePreview(dataUrl) {
+  _showScreenshotSave(blobOrUrl) {
+    const old = document.getElementById('poster-overlay-wx');
+    if (old) old.remove();
+
+    // 兼容 Blob 对象 和 字符串 URL（data URL / blob URL）
+    let imgSrc;
+    let needRevoke = false;
+    if (typeof blobOrUrl === 'string') {
+      imgSrc = blobOrUrl; // data URL 或 blob URL 字符串直接用
+    } else {
+      imgSrc = URL.createObjectURL(blobOrUrl);
+      needRevoke = true;
+    }
+
+    const overlay = document.createElement('div');
+    overlay.id = 'poster-overlay-wx';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:999999;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;';
+
+    const img = document.createElement('img');
+    img.style.cssText = 'max-width:100%;max-height:78vh;object-fit:contain;';
+    img.src = imgSrc;
+    overlay.appendChild(img);
+
+    // 微信环境下尝试 WeixinJSBridge imagePreview（对 data URL 部分版本可行）
+    const isDataUrl = typeof blobOrUrl === 'string' && blobOrUrl.startsWith('data:');
+    const isWx = /MicroMessenger/i.test(navigator.userAgent);
+
+    const bottomBar = document.createElement('div');
+    bottomBar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,0.9));padding:20px 16px 30px;text-align:center;';
+    bottomBar.innerHTML =
+      '<p style="color:#ffd43b;font-size:17px;font-weight:bold;margin-bottom:12px;">长按图片保存，或截屏保存</p>' +
+      '<div style="display:flex;justify-content:center;gap:12px;">' +
+        (isWx && isDataUrl ? '<button id="wx-try-save-btn" style="padding:12px 28px;background:rgba(76,175,80,0.8);color:#fff;border:none;border-radius:25px;font-size:15px;">尝试保存到相册</button>' : '') +
+        '<button id="wx-close-btn" style="padding:12px 28px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:25px;font-size:15px;">关闭</button>' +
+      '</div>';
+    overlay.appendChild(bottomBar);
+
+    document.body.appendChild(overlay);
+
+    // 关闭按钮
+    bottomBar.querySelector('#wx-close-btn').addEventListener('click', () => {
+      overlay.remove();
+      if (needRevoke) URL.revokeObjectURL(imgSrc);
+    });
+
+    // 微信环境下的"尝试保存到相册"按钮
+    const trySaveBtn = bottomBar.querySelector('#wx-try-save-btn');
+    if (trySaveBtn) {
+      trySaveBtn.addEventListener('click', () => {
+        // 尝试 <a download>
+        try {
+          var a = document.createElement('a');
+          a.href = imgSrc;
+          a.download = 'flower_photo.jpg';
+          a.style.display = 'none';
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(function() { document.body.removeChild(a); }, 200);
+        } catch(e) {
+          console.warn('[微信保存] a.download 失败:', e);
+        }
+        this._showToast('如保存失败，请长按图片或截屏保存');
+      });
+    }
+  }
+
+  /**
+   * 微信视频保存
+   * 微信 WebView 中 <a download> 和 navigator.share 对视频均不可靠
+   * 直接弹预览 + 提示用浏览器打开
+   */
+  _showWechatVideoSave(blob, filename, onDone) {
+    console.log('[微信视频保存] 被调用, blob size:', blob.size, 'filename:', filename);
+    this._showToast('正在打开视频预览...');
+    this._showWechatVideoPreview(blob, filename, onDone);
+  }
+
+  /**
+   * 微信视频预览保存界面
+   * 微信中 <a download> 不生效，直接提示用户用浏览器打开
+   * 同时提供"保存封面截图"作为替代
+   */
+  _showWechatVideoPreview(blob, filename, onDone) {
+    const finish = () => { if (onDone) onDone(); };
+
     const oldOverlay = document.getElementById('save-preview-overlay');
     if (oldOverlay) oldOverlay.remove();
+
+    const blobUrl = URL.createObjectURL(blob);
+    // 封面截图（来自录像结束时的 poster）
+    const posterSrc = this._lastFramePoster || '';
 
     const overlay = document.createElement('div');
     overlay.id = 'save-preview-overlay';
     overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.96);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;';
     overlay.innerHTML = `
-      <div style="background:rgba(255,255,255,0.1);border-radius:12px;padding:16px 20px;margin-bottom:16px;text-align:center;">
-        <p style="color:#fff;font-size:15px;margin:0;line-height:1.8;font-weight:500;">长按图片 → 保存到手机</p>
+      <video style="max-width:92%;max-height:45vh;border-radius:8px;background:#000;touch-action:auto;" autoplay loop playsinline webkit-playsinline controls
+        ${posterSrc ? `poster="${posterSrc}"` : ''}></video>
+      <div style="background:rgba(255,200,50,0.15);border:1px solid rgba(255,200,50,0.4);border-radius:12px;padding:14px 20px;margin-top:16px;text-align:center;max-width:90%;">
+        <p style="color:#ffd43b;font-size:15px;margin:0;line-height:1.8;font-weight:600;">
+          微信内无法直接保存视频<br>
+          请点击右上角 <span style="font-size:18px;">···</span> → <b>用浏览器打开</b>
+        </p>
+        <p style="color:rgba(255,255,255,0.5);font-size:12px;margin:8px 0 0;line-height:1.6;">
+          在浏览器中可直接下载保存视频
+        </p>
       </div>
-      <img style="max-width:94%;max-height:68vh;border-radius:10px;object-fit:contain;touch-action:auto;-webkit-touch-callout:default;-webkit-user-select:auto;user-select:auto;" src="${dataUrl}" />
-      <button class="save-preview-close" style="margin-top:20px;padding:12px 56px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:25px;font-size:15px;backdrop-filter:blur(4px);">关闭</button>
+      <div style="display:flex;gap:12px;margin-top:16px;">
+        ${posterSrc ? `<button class="wechat-save-poster" style="display:inline-flex;align-items:center;gap:6px;padding:12px 24px;background:rgba(255,255,255,0.95);color:#333;border:none;border-radius:25px;font-size:14px;font-weight:500;cursor:pointer;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          保存截图
+        </button>` : ''}
+        <button class="save-preview-close" style="padding:12px 28px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:25px;font-size:15px;">关闭</button>
+      </div>
     `;
     document.body.appendChild(overlay);
 
-    const cleanup = () => { overlay.remove(); };
+    const video = overlay.querySelector('video');
+    video.src = blobUrl;
+    video.play().catch(() => {});
+
+    // 保存截图按钮（将视频封面作为图片保存）
+    const posterBtn = overlay.querySelector('.wechat-save-poster');
+    if (posterBtn && posterSrc) {
+      posterBtn.addEventListener('click', () => {
+        // 将 poster data URL 转成 blob 再走图片保存流程
+        fetch(posterSrc).then(r => r.blob()).then(imgBlob => {
+          const imgFilename = filename.replace(/\.\w+$/, '.jpg');
+          this._showWechatImagePreview(posterSrc, imgBlob, imgFilename);
+        }).catch(() => {
+          this._showToast('截图保存失败');
+        });
+      });
+    }
+
+    const cleanup = () => {
+      video.pause();
+      video.src = '';
+      overlay.remove();
+      URL.revokeObjectURL(blobUrl);
+      finish();
+    };
     overlay.querySelector('.save-preview-close').addEventListener('click', cleanup);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
   }
@@ -1047,7 +1249,7 @@ class CaptureManager {
   }
 
   _isMobileDevice() {
-    return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    return /Mobi|Android|iPhone|iPad|iPod|OpenHarmony|HarmonyOS/i.test(navigator.userAgent);
   }
 
   /**

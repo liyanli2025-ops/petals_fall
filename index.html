@@ -1,7 +1,11 @@
 <!DOCTYPE html>
+<!-- v13 -->
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
   <title>局部地区有花雨</title>
   <meta property="og:title" content="局部地区有花雨——AR 沉浸花瓣体验">
@@ -29,7 +33,12 @@
       <img class="landing-logo" src="logo1.png" alt="局部地区有花雨">
       <p class="landing-subtitle">AR 沉浸花瓣体验</p>
       <p class="landing-desc">开启摄像头，沉浸在漫天花瓣之中<br>转动设备，感受 360° 环绕花海</p>
-      <button id="btn-start" class="btn-start">开始体验</button>
+      <label class="landing-agreement" id="landing-agreement">
+        <input type="checkbox" id="agree-checkbox">
+        <span class="agreement-checkmark"></span>
+        <span class="agreement-text">我已阅读并同意<a href="javascript:void(0)" onclick="event.stopPropagation();showAgreementModal('user')">《用户协议》</a>和<a href="javascript:void(0)" onclick="event.stopPropagation();showAgreementModal('privacy')">《隐私政策》</a></span>
+      </label>
+      <button id="btn-start" class="btn-start" disabled>开始体验</button>
       <p class="landing-tip">需要授权摄像头和陀螺仪权限</p>
       <p id="debug-info" class="debug-info"></p>
     </div>
@@ -140,6 +149,164 @@
   <script src="js/app.js"></script>
   <!-- 灯塔数据埋点 -->
   <script src="report.js"></script>
+  <!-- 用户协议弹窗 -->
+  <div id="agreement-modal-user" class="agreement-modal" onclick="if(event.target===this)hideAgreementModal('user')">
+    <div class="agreement-modal-body">
+      <div class="agreement-modal-header">
+        <h2>用户协议</h2>
+        <button class="agreement-modal-close" onclick="hideAgreementModal('user')">&times;</button>
+      </div>
+      <div class="agreement-modal-content">
+        <h4>1. 协议确认</h4>
+        <p>欢迎使用「局部地区有花雨」AR 沉浸花瓣体验服务（以下简称"本服务"）。本服务由深圳市腾讯计算机系统有限公司（以下简称"我们"）提供。</p>
+        <p>在您勾选同意并点击"开始体验"前，请务必仔细阅读本协议。您勾选同意即视为已阅读、理解并接受本协议的全部内容。</p>
+
+        <h4>2. 服务内容</h4>
+        <p>本服务是一款基于 Web 技术的 AR 互动体验页面，主要功能包括：</p>
+        <ul>
+          <li>通过设备摄像头捕捉实时画面，将虚拟花瓣雨叠加到真实场景中；</li>
+          <li>通过设备陀螺仪/加速度计感应设备方向和运动，实现 360° 环绕花瓣效果；</li>
+          <li>通过浏览器端 AI 模型识别人物轮廓，实现花瓣与人物的遮挡互动效果；</li>
+          <li>提供拍照和录像功能，将 AR 效果保存为图片或视频至您的本地设备。</li>
+        </ul>
+        <p>您理解并同意，为保障上述功能实现，您需要授权本页面调用设备的摄像头及陀螺仪/加速度计传感器。</p>
+
+        <h4>3. 使用规则</h4>
+        <p>3.1 您承诺使用本服务时遵守相关法律法规及公序良俗，不得利用本服务从事任何违法违规活动。</p>
+        <p>3.2 您理解本服务依赖于浏览器环境、设备硬件性能及网络状况，我们无法保证在所有设备和浏览器上均能完美运行。因设备兼容性、浏览器限制或网络问题导致的体验差异，不属于服务故障。</p>
+        <p>3.3 本服务会根据您的设备性能自动调整渲染效果（如花瓣数量、特效级别），以保障流畅运行。</p>
+        <p>3.4 我们保留因业务调整、技术维护或其他合理原因暂停、变更或终止服务的权利。</p>
+
+        <h4>4. 知识产权</h4>
+        <p>本服务中涉及的所有内容，包括但不限于页面设计、品牌标识、视觉素材、视频、代码及交互方案，其知识产权均归我们或相关权利人所有。未经书面授权，您不得以任何形式复制、修改、传播或用于商业用途。</p>
+
+        <h4>5. 免责声明</h4>
+        <p>5.1 本服务按"现状"提供，我们不对服务的持续性、稳定性或无错误运行作出任何明示或暗示的保证。</p>
+        <p>5.2 因不可抗力（包括但不限于网络中断、设备故障、操作系统或浏览器更新导致的兼容性变化）引起的服务中断或功能异常，我们不承担赔偿责任。</p>
+        <p>5.3 您使用拍照/录像功能所生成的内容由您自行管理和负责，我们不对其后续使用承担任何责任。</p>
+
+        <h4>6. 协议变更</h4>
+        <p>我们可能根据业务需要适时修订本协议。修订后的协议将在本页面发布，您继续使用本服务即视为接受修订后的协议。</p>
+
+        <h4>7. 适用法律与争议解决</h4>
+        <p>本协议的订立、执行和解释均适用中华人民共和国大陆地区法律（不含冲突法规则）。因本协议引起的任何争议，双方应友好协商解决；协商不成的，任何一方可向被告所在地有管辖权的人民法院提起诉讼。</p>
+
+        <h4>8. 联系我们</h4>
+        <p>如您对本协议有任何疑问或建议，请通过以下方式联系我们：</p>
+        <p>邮箱：Dataprivacy@tencent.com</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 隐私政策弹窗 -->
+  <div id="agreement-modal-privacy" class="agreement-modal" onclick="if(event.target===this)hideAgreementModal('privacy')">
+    <div class="agreement-modal-body">
+      <div class="agreement-modal-header">
+        <h2>隐私政策</h2>
+        <button class="agreement-modal-close" onclick="hideAgreementModal('privacy')">&times;</button>
+      </div>
+      <div class="agreement-modal-content">
+        <p>我们（深圳市腾讯计算机系统有限公司）深知个人信息的重要性，并严格遵循合法、正当、必要原则保护您的隐私。本政策将说明我们在您使用「局部地区有花雨」AR 沉浸花瓣体验服务时，如何收集和使用您的信息。</p>
+
+        <div class="agreement-highlight">
+          <strong>核心承诺：</strong>本服务的摄像头画面、陀螺仪数据、人体轮廓识别及拍摄内容均在您的设备本地处理，<strong>不会被上传至任何服务器</strong>。
+        </div>
+
+        <h4>1. 我们收集和使用的信息</h4>
+        <p>为实现 AR 互动体验的核心功能，我们会在您明确授权（勾选同意协议并点击"开始体验"）后，请求以下设备权限：</p>
+
+        <h5>1.1 摄像头权限与画面数据</h5>
+        <p><strong>用途：</strong>捕捉实时画面作为 AR 背景，将虚拟花瓣雨叠加到真实场景中。</p>
+        <p><strong>处理方式：</strong>所有画面数据仅在您当前浏览器页面内实时处理和渲染，<strong>不会被录制、存储或上传至任何服务器</strong>。关闭页面后，摄像头将自动停止，所有画面数据随即清除。</p>
+
+        <h5>1.2 陀螺仪与加速度计数据</h5>
+        <p><strong>用途：</strong>检测设备的朝向和运动，实现 360° 环绕花瓣雨效果及运动视差。</p>
+        <p><strong>处理方式：</strong>传感器数据仅用于本地实时计算花瓣的运动方向，<strong>不会关联您的个人身份，不会被记录或上传至服务器</strong>。</p>
+
+        <h5>1.3 人体轮廓识别</h5>
+        <p><strong>用途：</strong>通过浏览器端 AI 模型（MediaPipe SelfieSegmentation）识别摄像头画面中的人物轮廓，实现花瓣与人物之间的前后遮挡互动效果。</p>
+        <p><strong>处理方式：</strong>AI 模型完全运行在您的设备浏览器中，识别过程不依赖任何云端服务。<strong>画面和识别结果均不会离开您的设备</strong>。在低端设备上该功能可能自动关闭以保障流畅性。</p>
+
+        <h5>1.4 拍照与录像</h5>
+        <p><strong>用途：</strong>您可以在体验过程中主动拍摄照片或录制短视频，将 AR 花瓣雨效果保存为图片或视频文件。</p>
+        <p><strong>处理方式：</strong>拍摄内容完全在您的设备本地合成和生成，直接保存到您的设备中。<strong>我们不会收集、上传或存储您拍摄的任何内容</strong>。您对拍摄内容的后续使用和分享由您自行决定和负责。</p>
+
+        <p>若您拒绝授权摄像头或陀螺仪权限，将无法使用 AR 互动体验的核心功能，但页面仍会提供静态背景下的花瓣雨效果。</p>
+
+        <h4>2. 信息存储</h4>
+        <p>2.1 如上所述，摄像头画面、传感器数据及人体轮廓识别结果均为实时处理后即丢弃，我们不会在任何服务器上存储这些数据。</p>
+
+        <h4>3. 信息共享</h4>
+        <p>3.1 我们不会将您的任何个人信息出售或共享给第三方。</p>
+
+        <h4>4. 技术说明</h4>
+        <p>4.1 本服务基于浏览器标准 API 实现，包括：getUserMedia（摄像头）、DeviceOrientation / DeviceMotion（陀螺仪/加速度计）、WebGL（图形渲染）。所有数据处理均在您的设备本地完成。相关权限的授予与撤回由您的浏览器及操作系统控制。</p>
+        <p>4.2 人体轮廓识别使用的 MediaPipe SelfieSegmentation 模型文件已内置于页面中，不需要额外的网络请求即可运行。</p>
+
+        <h4>5. 您的权利</h4>
+        <p>5.1 <strong>授权撤回：</strong>您随时可通过浏览器设置或手机系统设置，关闭对本页面的摄像头和传感器授权。</p>
+        <p>5.2 <strong>数据清除：</strong>关闭页面后，所有本地处理的实时数据将自动清除，无需额外操作。</p>
+
+        <h4>6. 未成年人保护</h4>
+        <p>我们非常重视对未成年人个人信息的保护。如果您是未满 18 周岁的未成年人，请在监护人的陪同和指导下阅读本政策并使用本服务。</p>
+
+        <h4>7. 政策更新</h4>
+        <p>我们可能适时更新本政策。更新后的政策将在本页面发布。若涉及重大变更（如收集信息范围调整），我们会在页面显著位置提示。</p>
+
+        <h4>8. 联系我们</h4>
+        <p>如您对本隐私政策有任何疑问或需要行使您的权利，请通过以下方式联系我们：</p>
+        <p>邮箱：Dataprivacy@tencent.com</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 协议弹窗控制脚本 -->
+  <script>
+  (function() {
+    // 找到 style.css 中 html,body 的 touch-action 规则并缓存引用
+    var _touchActionRule = null;
+    function findTouchActionRule() {
+      if (_touchActionRule) return _touchActionRule;
+      var sheets = document.styleSheets;
+      for (var i = 0; i < sheets.length; i++) {
+        try {
+          var rules = sheets[i].cssRules || sheets[i].rules;
+          if (!rules) continue;
+          for (var j = 0; j < rules.length; j++) {
+            var r = rules[j];
+            if (r.selectorText && /html\s*,\s*body/i.test(r.selectorText) && r.style.touchAction) {
+              _touchActionRule = r;
+              return r;
+            }
+          }
+        } catch(e) {}
+      }
+      return null;
+    }
+
+    var _openCount = 0;
+    window.showAgreementModal = function(type) {
+      var modal = document.getElementById('agreement-modal-' + type);
+      if (!modal) return;
+      modal.classList.add('show');
+      _openCount++;
+      // 直接修改 CSS 规则，让浏览器重新计算 touch-action
+      var rule = findTouchActionRule();
+      if (rule) rule.style.touchAction = 'auto';
+    };
+    window.hideAgreementModal = function(type) {
+      var modal = document.getElementById('agreement-modal-' + type);
+      if (!modal) return;
+      modal.classList.remove('show');
+      _openCount = Math.max(0, _openCount - 1);
+      if (_openCount === 0) {
+        var rule = findTouchActionRule();
+        if (rule) rule.style.touchAction = 'none';
+      }
+    };
+  })();
+  </script>
+
   <!-- 分享能力 -->
   <script>
   (function() {
@@ -215,6 +382,126 @@
         url: 'https://h5.news.qq.com/qqfile/redian/petals_fall.html'
       });
     });
+  })();
+  </script>
+
+  <!-- 微信保存修复补丁（内联，不受JS缓存影响）-->
+  <script>
+  (function() {
+    var patchTimer = setInterval(function() {
+      if (typeof CaptureManager === 'undefined') return;
+      clearInterval(patchTimer);
+      var proto = CaptureManager.prototype;
+
+      // === 修复1: 微信图片保存 — 全屏展示 + 长按/截屏保存 ===
+      // 微信 WebView 限制：imagePreview 黑屏、navigator.share 弹分享选择器、<a download> 被拦截
+      // 最可靠方案：全屏展示 data URL 图片 → 用户长按保存或截屏
+      proto._saveInWechat = function(blob, filename, isImage, done) {
+        var self = this;
+        var finish = function() { if (done) done(); };
+        if (isImage) {
+          var img = new Image();
+          var blobUrl = URL.createObjectURL(blob);
+          img.onload = function() {
+            URL.revokeObjectURL(blobUrl);
+            var maxW = 1080;
+            var w = img.naturalWidth, h = img.naturalHeight;
+            if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
+            var c = document.createElement('canvas');
+            c.width = w; c.height = h;
+            c.getContext('2d').drawImage(img, 0, 0, w, h);
+            var dataUrl;
+            try { dataUrl = c.toDataURL('image/jpeg', 0.92); } catch(e) { dataUrl = ''; }
+            self._showScreenshotSave(dataUrl);
+            finish();
+          };
+          img.onerror = function() {
+            URL.revokeObjectURL(blobUrl);
+            self._showToast('图片加载失败');
+            finish();
+          };
+          img.src = blobUrl;
+        } else {
+          self._showWechatVideoSave(blob, filename, finish);
+        }
+      };
+
+      // 全屏截屏保存界面 — 用 data URL 展示图片，提示长按保存或截屏
+      proto._showScreenshotSave = function(imgSrc) {
+        var old = document.getElementById('poster-overlay-wx');
+        if (old) old.remove();
+
+        var overlay = document.createElement('div');
+        overlay.id = 'poster-overlay-wx';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:999999;background:#000;display:flex;align-items:center;justify-content:center;';
+
+        // 用 data URL 展示图片（微信对 data URL img 长按保存的支持优于 blob URL）
+        var img = document.createElement('img');
+        img.style.cssText = 'width:100%;height:100%;object-fit:contain;';
+        img.src = imgSrc;
+        overlay.appendChild(img);
+
+        // 提示浮层（初始隐藏，延迟显示，给用户纯净长按时间）
+        var tipOverlay = document.createElement('div');
+        tipOverlay.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:max(30px,env(safe-area-inset-bottom));opacity:0;transition:opacity 0.5s;pointer-events:none;';
+        tipOverlay.innerHTML =
+          '<p style="color:#ffd43b;font-size:16px;font-weight:bold;text-shadow:0 1px 8px rgba(0,0,0,0.8);margin-bottom:12px;">长按上方图片可保存，或截屏保存</p>' +
+          '<button class="__close" style="pointer-events:auto;padding:10px 32px;background:rgba(0,0,0,0.5);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:25px;font-size:14px;backdrop-filter:blur(4px);">关闭</button>';
+        overlay.appendChild(tipOverlay);
+        document.body.appendChild(overlay);
+
+        // 3秒后显示提示（给用户纯净的长按保存时间）
+        setTimeout(function() {
+          tipOverlay.style.opacity = '1';
+          tipOverlay.style.pointerEvents = 'auto';
+        }, 3000);
+
+        tipOverlay.querySelector('.__close').onclick = function() { overlay.remove(); };
+      };
+
+      // === 修复3: 微信视频保存 ===
+      proto._showWechatVideoSave = function(blob, filename, onDone) {
+        this._showWechatVideoPreview(blob, filename, onDone);
+      };
+      proto._showWechatVideoPreview = function(blob, filename, onDone) {
+        var finish = function() { if (onDone) onDone(); };
+        var old = document.getElementById('save-preview-overlay');
+        if (old) old.remove();
+        var blobUrl = URL.createObjectURL(blob);
+        var posterSrc = this._lastFramePoster || '';
+        var overlay = document.createElement('div');
+        overlay.id = 'save-preview-overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.96);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;';
+        overlay.innerHTML = '<video style="max-width:92%;max-height:45vh;border-radius:8px;background:#000;" autoplay loop playsinline webkit-playsinline controls ' + (posterSrc ? 'poster="' + posterSrc + '"' : '') + '></video>' +
+          '<div style="background:rgba(255,200,50,0.15);border:1px solid rgba(255,200,50,0.4);border-radius:12px;padding:14px 20px;margin-top:16px;text-align:center;max-width:90%;"><p style="color:#ffd43b;font-size:15px;margin:0;line-height:1.8;font-weight:600;">微信内无法直接保存视频<br>请点击右上角 <span style="font-size:18px;">···</span> → <b>用浏览器打开</b></p></div>' +
+          '<div style="margin-top:16px;"><button class="sv-close" style="padding:12px 28px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:25px;font-size:15px;">关闭</button></div>';
+        document.body.appendChild(overlay);
+        var video = overlay.querySelector('video');
+        video.src = blobUrl;
+        video.play().catch(function(){});
+        overlay.querySelector('.sv-close').addEventListener('click', function() {
+          video.pause(); video.src = '';
+          overlay.remove(); URL.revokeObjectURL(blobUrl);
+          finish();
+        });
+      };
+
+      // === 修复4: 录像格式 — 仅允许 MP4 ===
+      var origStartRecording = proto.startRecording;
+      proto.startRecording = function() {
+        var mp4Supported = false;
+        try {
+          mp4Supported = MediaRecorder.isTypeSupported('video/mp4;codecs=avc1') || MediaRecorder.isTypeSupported('video/mp4');
+        } catch(e) {}
+        if (!mp4Supported) {
+          this._showToast('当前浏览器不支持MP4录像，仅支持拍照保存');
+          return;
+        }
+        origStartRecording.call(this);
+      };
+
+      console.log('[补丁] 微信保存修复已加载 v5');
+    }, 100);
   })();
   </script>
 </body>

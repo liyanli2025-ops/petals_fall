@@ -18,7 +18,7 @@ html, body {
   background: #000;
   color: #fff;
   -webkit-tap-highlight-color: transparent;
-  touch-action: none;
+  touch-action: manipulation;
 }
 
 .hidden {
@@ -89,13 +89,16 @@ html, body {
 .landing-content {
   position: relative;
   z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   text-align: center;
   padding: 2rem;
   padding-left: 2.5rem;
   animation: fadeInUp 1.2s ease-out;
   /* 将内容定位到偏下方，与视频重心错开 */
   margin-top: auto;
-  margin-bottom: 8vh;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 1.5rem);
 }
 
 /* 柔雾层：无边界的模糊背景，自然扩散 */
@@ -227,6 +230,99 @@ html, body {
 .btn-start:active {
   transform: translateY(0) scale(0.98);
   background: rgba(255, 255, 255, 0.2);
+}
+
+/* ====== 用户协议勾选 ====== */
+.landing-agreement {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  max-width: 320px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.landing-agreement input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.agreement-checkmark {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  border: 1.5px solid rgba(255, 255, 255, 0.5);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  transition: all 0.25s ease;
+  position: relative;
+}
+
+/* 勾选后的对钩 */
+.agreement-checkmark::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 5px;
+  width: 5px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) scale(0);
+  transition: transform 0.2s ease;
+}
+
+.landing-agreement input[type="checkbox"]:checked + .agreement-checkmark {
+  background: rgba(233, 30, 99, 0.7);
+  border-color: rgba(233, 30, 99, 0.9);
+}
+
+.landing-agreement input[type="checkbox"]:checked + .agreement-checkmark::after {
+  transform: rotate(45deg) scale(1);
+}
+
+.agreement-text {
+  font-size: 0.72rem;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.6);
+  text-align: left;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.agreement-text a {
+  color: rgba(255, 255, 255, 0.85);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+  transition: all 0.2s;
+}
+
+.agreement-text a:active {
+  color: #fff;
+  border-bottom-color: rgba(255, 255, 255, 0.6);
+}
+
+/* ====== 按钮禁用态 ====== */
+.btn-start:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+  filter: grayscale(0.3);
+}
+
+.btn-start:not(:disabled) {
+  animation: btnReady 0.4s ease-out;
+}
+
+@keyframes btnReady {
+  0% { opacity: 0.35; transform: scale(0.97); }
+  100% { opacity: 1; transform: scale(1); }
 }
 
 .landing-tip {
@@ -481,7 +577,7 @@ html, body {
   .landing-subtitle { font-size: 1rem; }
   .landing-desc { font-size: 0.95rem; max-width: 500px; margin-left: auto; margin-right: auto; margin-bottom: 3rem; }
   .btn-start { padding: 1rem 3.5rem; font-size: 1.1rem; }
-  .landing-content { margin-bottom: 10vh; }
+  .landing-content { padding-bottom: 10vh; }
   .ui-overlay { bottom: 20px; gap: 1.5rem; }
   .ui-btn { width: 56px; height: 56px; }
   .petal-control input[type="range"] { width: 120px; }
@@ -500,6 +596,57 @@ html, body {
     z-index: 10;
     pointer-events: none;
     animation: fadeOut 3s 3s forwards;
+  }
+}
+
+/* 大屏手机适配（iPhone Pro Max / 大屏安卓） */
+@media (min-width: 410px) and (max-width: 768px) {
+  .landing-content {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 2.5rem);
+  }
+  .landing-logo {
+    margin-bottom: 1.5rem;
+  }
+  .landing-subtitle {
+    margin-bottom: 2rem;
+  }
+  .landing-desc {
+    margin-bottom: 3.5rem;
+  }
+  .landing-agreement {
+    margin-bottom: 2rem;
+  }
+  .landing-tip {
+    margin-top: 2rem;
+  }
+}
+
+/* 超大屏手机适配（高度 > 850px 的设备） */
+@media (min-height: 850px) and (max-width: 768px) {
+  .landing-content {
+    padding-top: 0;
+  }
+  .landing-logo {
+    width: 68vw;
+    margin-bottom: 2rem;
+  }
+  .landing-subtitle {
+    font-size: 0.9rem;
+    margin-bottom: 2rem;
+  }
+  .landing-desc {
+    font-size: 0.9rem;
+    margin-bottom: 3.5rem;
+  }
+  .landing-agreement {
+    margin-bottom: 2rem;
+  }
+  .btn-start {
+    padding: 1rem 3.5rem;
+    font-size: 1.05rem;
+  }
+  .landing-tip {
+    margin-top: 2rem;
   }
 }
 
@@ -854,5 +1001,175 @@ html, body {
   100% {
     transform: translateY(105vh) translateX(-20px) rotate(360deg) scale(0.7);
     opacity: 0;
+  }
+}
+
+/* ============================================
+   协议弹窗浮层
+   ============================================ */
+.agreement-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 30000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+  /* 半透明黑色遮罩 */
+  background: rgba(0, 0, 0, 0.6);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  touch-action: auto;
+}
+
+.agreement-modal.show {
+  opacity: 1;
+  visibility: visible;
+}
+
+.agreement-modal-body {
+  position: relative;
+  width: 100%;
+  max-width: 680px;
+  max-height: 82vh;
+  background: #fff;
+  border-radius: 20px 20px 0 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transform: translateY(100%);
+  transition: transform 0.4s cubic-bezier(0.2, 0.9, 0.3, 1);
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.3);
+  touch-action: auto;
+}
+
+.agreement-modal.show .agreement-modal-body {
+  transform: translateY(0);
+}
+
+.agreement-modal-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid #f0f0f0;
+  background: #fff;
+}
+
+.agreement-modal-header h2 {
+  font-size: 17px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin: 0;
+}
+
+.agreement-modal-close {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f5f5f5;
+  border: none;
+  border-radius: 50%;
+  font-size: 20px;
+  line-height: 1;
+  color: #999;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.agreement-modal-close:active {
+  background: #e8e8e8;
+  transform: scale(0.92);
+}
+
+.agreement-modal-content {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  padding: 10px 20px calc(20px + env(safe-area-inset-bottom, 0px));
+  color: #333;
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+.agreement-modal-content h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1a1a1a;
+  text-align: center;
+  margin: 0 0 4px;
+}
+
+.agreement-modal-content h4 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin: 22px 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.agreement-modal-content > :first-child {
+  margin-top: 0;
+}
+
+.agreement-modal-content h5 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  margin: 16px 0 6px;
+}
+
+.agreement-modal-content p {
+  margin: 8px 0;
+}
+
+.agreement-modal-content ul {
+  padding-left: 1.2em;
+  margin: 8px 0;
+}
+
+.agreement-modal-content li {
+  margin: 6px 0;
+}
+
+.agreement-update-info {
+  text-align: center;
+  color: #999;
+  font-size: 13px;
+  margin-bottom: 20px !important;
+}
+
+.agreement-highlight {
+  background: #f0faf0;
+  border-left: 3px solid #4caf50;
+  padding: 12px 14px;
+  margin: 14px 0;
+  border-radius: 0 6px 6px 0;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+/* PC 端弹窗居中 */
+@media (min-width: 769px) {
+  .agreement-modal {
+    align-items: center;
+  }
+  .agreement-modal-body {
+    max-height: 75vh;
+    border-radius: 16px;
+    margin: 0 20px;
+    transform: translateY(40px);
+  }
+  .agreement-modal.show .agreement-modal-body {
+    transform: translateY(0);
   }
 }
