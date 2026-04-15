@@ -122,7 +122,6 @@ body {
   inset: 0;
   z-index: -1;
   background:
-    url(img/paper-texture.png) repeat center center,
     linear-gradient(180deg,
       #fdf6e3 0%,
       #fef8ec 20%,
@@ -130,7 +129,15 @@ body {
       #fcf0d8 80%,
       #fbecd2 100%
     );
-  background-blend-mode: multiply;
+}
+
+.paper-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: url(img/sketch-flowers.jpg) no-repeat center center / cover;
+  opacity: 0.12;
+  pointer-events: none;
 }
 
 /* ============================================
@@ -348,23 +355,23 @@ body {
 .city-node.bloomed .flower-bloom-img {
   opacity: 1;
   transform: translate(-50%, -50%) scale(1);
+  animation: flowerSway 4s ease-in-out 0.7s infinite;
+}
+
+/* 花朵轻柔摇晃 */
+@keyframes flowerSway {
+  0%, 100% { transform: translate(-50%, -50%) scale(1) rotate(0deg); }
+  25% { transform: translate(-50%, -50%) scale(1) rotate(2deg) translateY(-2px); }
+  75% { transform: translate(-50%, -50%) scale(1) rotate(-2deg) translateY(-1px); }
 }
 
 /* ============================================
-   城市卡片 — 地标+文字横向并排
+   城市卡片 — 地标+文字横向并排（默认显示）
    ============================================ */
 .city-card {
   display: flex;
   align-items: center;
   gap: 12px;
-  opacity: 0;
-  transform: translateY(15px);
-  transition: opacity 0.6s ease 0.3s, transform 0.6s ease 0.3s;
-}
-
-.city-node.bloomed .city-card {
-  opacity: 1;
-  transform: translateY(0);
 }
 
 /* 偶数城市（右侧）卡片反向排列：文字在左，地标在右 */
@@ -390,16 +397,6 @@ body {
   height: 100%;
   object-fit: contain;
   filter: drop-shadow(0 3px 8px rgba(0,0,0,0.12));
-}
-
-/* 地标轻微浮动动画 */
-.city-node.bloomed .landmark-img {
-  animation: landmarkFloat 4s ease-in-out infinite;
-}
-
-@keyframes landmarkFloat {
-  0%, 100% { transform: translateY(0) rotate(0deg); }
-  50% { transform: translateY(-5px) rotate(1deg); }
 }
 
 /* ============================================
@@ -450,14 +447,6 @@ body {
   font-size: 0.8rem;
   color: #a08060;
   letter-spacing: 0.15em;
-  opacity: 0;
-  transform: translateY(-5px);
-  transition: all 0.4s ease 0.5s;
-}
-
-.city-node.bloomed .city-flower-name {
-  opacity: 1;
-  transform: translateY(0);
 }
 
 .info-text {
@@ -467,14 +456,6 @@ body {
   font-style: italic;
   letter-spacing: 0.05em;
   margin-top: 4px;
-  opacity: 0;
-  transform: translateY(5px);
-  transition: all 0.5s ease 0.7s;
-}
-
-.city-node.bloomed .info-text {
-  opacity: 1;
-  transform: translateY(0);
 }
 
 /* ============================================
@@ -484,11 +465,6 @@ body {
   width: 120px;
   height: 20px;
   margin-top: 16px;
-  opacity: 0;
-  transition: opacity 0.6s ease 1s;
-}
-
-.city-node.bloomed .city-divider {
   opacity: 1;
 }
 
@@ -504,7 +480,7 @@ body {
   position: absolute;
   top: 0;
   left: 0;
-  z-index: 50;
+  z-index: 5;
   pointer-events: none;
 }
 

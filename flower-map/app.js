@@ -425,11 +425,11 @@
     var cy = flowerRect.top - containerRect.top + flowerRect.height / 2;
     var petalImg = state.petalImages[city.id];
 
-    // 三层景深配置：[远景, 中景, 近景]
+    // 三层景深配置：[远景, 中景, 近景]（精简数量）
     var layerConfigs = [
-      { layer: 0, sizeMin: 4,  sizeMax: 8,  speedMin: 1.0, speedMax: 3.5, count: 14 },
-      { layer: 1, sizeMin: 8,  sizeMax: 16, speedMin: 1.2, speedMax: 4.0, count: 16 },
-      { layer: 2, sizeMin: 14, sizeMax: 22, speedMin: 0.8, speedMax: 2.5, count: 8 }
+      { layer: 0, sizeMin: 4,  sizeMax: 8,  speedMin: 1.0, speedMax: 3.5, count: 6 },
+      { layer: 1, sizeMin: 8,  sizeMax: 16, speedMin: 1.2, speedMax: 4.0, count: 8 },
+      { layer: 2, sizeMin: 14, sizeMax: 22, speedMin: 0.8, speedMax: 2.5, count: 4 }
     ];
 
     function burst(delay, scale) {
