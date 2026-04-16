@@ -741,140 +741,386 @@ body {
 }
 
 /* ============================================
-   花瓣雨 iframe（底层，用于渐变过渡）
+   AR 花瓣雨场景
    ============================================ */
-.outro-iframe {
+.ar-scene {
   position: fixed;
   inset: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 998;
-  border: none;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.3s ease;
+  background: #000;
+  z-index: 2000;
 }
 
-.outro-iframe.ready {
-  opacity: 1;
+.ar-scene.hidden {
+  display: none !important;
 }
 
-.outro-iframe.interactive {
-  opacity: 1;
-  pointer-events: auto;
-  z-index: 1001;
-}
-
-/* ============================================
-   尾部过渡：「不摇树的花雨」
-   ============================================ */
-.outro-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 999;
-  background: #fbecd2;
-  opacity: 0;
-  transition: opacity 1s ease;
-  overflow: hidden;
-}
-
-.outro-overlay.visible {
-  opacity: 1;
-}
-
-/* 彩铅背景层 */
-.outro-bg {
+.ar-scene #camera-video {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: center bottom;
+  z-index: 0;
 }
 
-.outro-bg-front { z-index: 1; opacity: 1; }
-.outro-bg-back { z-index: 0; opacity: 0; }
-
-/* 多点笔触揭示：线稿/彩铅通过 JS 动态设置 mask 多点扩散 */
-.outro-bg.brush-reveal {
-  z-index: 2;
-  opacity: 1;
-  -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 100%, transparent 100%);
-  mask-image: radial-gradient(circle at 50% 50%, transparent 100%, transparent 100%);
-}
-
-.outro-bg.color-spread {
-  z-index: 3;
-  opacity: 1;
-  -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 100%, transparent 100%);
-  mask-image: radial-gradient(circle at 50% 50%, transparent 100%, transparent 100%);
-}
-
-/* 文案层：三句同屏竖排 */
-.outro-text-layer {
+.ar-fallback-bg {
   position: absolute;
   inset: 0;
-  z-index: 4;
+  z-index: 0;
+  background: linear-gradient(180deg, #1a0a2e 0%, #2d1b4e 25%, #4a2068 50%, #2d1b4e 75%, #1a0a2e 100%);
+  background-size: 100% 200%;
+  animation: arGradientShift 8s ease-in-out infinite;
+}
+
+.ar-fallback-bg.hidden { display: none !important; }
+
+@keyframes arGradientShift {
+  0%, 100% { background-position: 0% 0%; }
+  50% { background-position: 0% 100%; }
+}
+
+.ar-petal-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.ar-layer-far {
+  z-index: 1;
+  filter: blur(1.5px);
+  -webkit-filter: blur(1.5px);
+}
+
+.ar-layer-mid {
+  z-index: 3;
+  filter: blur(1px);
+  -webkit-filter: blur(1px);
+}
+
+.ar-person-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  pointer-events: none;
+  object-fit: cover;
+}
+
+.ar-layer-near {
+  z-index: 5;
+  filter: blur(4px);
+  -webkit-filter: blur(4px);
+}
+
+.ar-ui-overlay {
+  position: absolute;
+  z-index: 10;
+  bottom: env(safe-area-inset-bottom, 0);
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1.5rem;
+  pointer-events: none;
+}
+
+.ar-ui-btn {
+  pointer-events: auto;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.ar-ui-btn-wrap {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+
+.ar-ui-btn-label {
+  font-size: 10px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.85);
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.ar-ui-btn:active {
+  transform: scale(0.95);
+}
+
+.ar-ui-btn.wind-active {
+  background: rgba(100, 181, 246, 0.45);
+  border-color: rgba(100, 181, 246, 0.6);
+}
+
+.ar-ui-btn.hidden { display: none !important; }
+.ar-ui-btn.ui-btn-disabled { opacity: 0.3; pointer-events: none; }
+
+.ar-petal-control {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 25px;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.ar-petal-control input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 80px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 2px;
+  outline: none;
+}
+
+.ar-petal-control input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.ar-fps-counter {
+  position: absolute;
+  top: env(safe-area-inset-top, 10px);
+  right: 10px;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #0f0;
+  font-size: 12px;
+  font-family: monospace;
+  border-radius: 4px;
+  z-index: 100;
+  pointer-events: none;
+  display: none;
+}
+
+.ar-record-time {
+  position: absolute;
+  top: env(safe-area-inset-top, 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 16px;
+  background: rgba(229, 57, 53, 0.85);
+  color: #fff;
+  font-size: 14px;
+  font-family: monospace;
+  font-weight: 600;
+  border-radius: 20px;
+  z-index: 100;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ar-record-time::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  background: #fff;
+  border-radius: 50%;
+  animation: arBlink 1s step-end infinite;
+}
+
+.ar-record-time.hidden { display: none !important; }
+
+@keyframes arBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.ar-capture-flash {
+  position: fixed;
+  inset: 0;
+  background: #fff;
+  z-index: 9999;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.05s;
+}
+
+.ar-capture-flash.active {
+  opacity: 0.8;
+  transition: opacity 0s;
+}
+
+.ar-capture-toast {
+  position: fixed;
+  bottom: 120px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  padding: 10px 24px;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #fff;
+  font-size: 14px;
+  border-radius: 25px;
+  z-index: 10000;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+}
+
+.ar-capture-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.ar-ui-btn.recording {
+  background: rgba(229, 57, 53, 0.5);
+  border-color: rgba(229, 57, 53, 0.7);
+  animation: arRecordPulse 1s ease-in-out infinite;
+}
+
+.ar-ui-btn.recording .record-dot {
+  r: 4;
+  rx: 3;
+  fill: #fff;
+}
+
+@keyframes arRecordPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(229, 57, 53, 0.5); }
+  50% { box-shadow: 0 0 0 10px rgba(229, 57, 53, 0); }
+}
+
+/* CSS 花瓣降级（极低端设备） */
+.css-petals-container {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.css-petal {
+  position: absolute;
+  border-radius: 50% 0 50% 50%;
+  opacity: 0.7;
+  will-change: transform;
+  animation: cssPetalFall linear infinite;
+}
+
+.css-petal:nth-child(odd) { background: radial-gradient(ellipse at 30% 30%, #ffb6c1, #ff69b4); }
+.css-petal:nth-child(even) { background: radial-gradient(ellipse at 30% 30%, #ffc0cb, #ff8da1); }
+.css-petal:nth-child(3n) { background: radial-gradient(ellipse at 30% 30%, #ffd1dc, #ffafc5); border-radius: 50% 50% 0 50%; }
+
+@keyframes cssPetalFall {
+  0% { transform: translateY(-10vh) rotate(0deg) scale(1); opacity: 0; }
+  5% { opacity: 0.7; }
+  50% { transform: translateY(45vh) translateX(30px) rotate(180deg) scale(0.9); }
+  95% { opacity: 0.5; }
+  100% { transform: translateY(105vh) translateX(-20px) rotate(360deg) scale(0.7); opacity: 0; }
+}
+
+/* 拍照预览（复用花瓣雨的样式类名） */
+.photo-preview-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.92);
+  z-index: 20000;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 0 32px;
-  gap: 16px;
-}
-
-.outro-line {
   opacity: 0;
-  transform: translateY(24px);
-  transition: opacity 0.8s ease, transform 0.8s ease;
-  text-align: center;
-  line-height: 1.5;
-  letter-spacing: 0.15em;
-  text-shadow: 0 2px 12px rgba(251,236,210,0.9), 0 0 20px rgba(251,236,210,0.6);
-}
-
-.outro-line.show {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.outro-line.fade-out {
-  opacity: 0;
-  transform: translateY(-10px);
-  transition: opacity 0.6s ease, transform 0.6s ease;
-}
-
-/* 第一句：核心主张 — 大号有力量 */
-.outro-line-1 {
-  font-size: 1.8rem;
-  font-weight: 800;
-  color: #5a6e4a;
-  text-shadow: 0 2px 12px rgba(251,236,210,0.9), 0 1px 8px rgba(90, 110, 74, 0.2);
-}
-
-/* 第二句：引出花雨 — 轻柔飘逸 */
-.outro-line-2 {
-  font-size: 1.4rem;
-  font-weight: 500;
-  color: #b87070;
-  text-shadow: 0 2px 12px rgba(251,236,210,0.9), 0 1px 6px rgba(184,112,112,0.15);
-}
-
-/* 第三句：环保点睛 — 小字耳语 */
-.outro-line-3 {
-  font-size: 0.95rem;
-  font-weight: 400;
-  color: #8a7a68;
-  letter-spacing: 0.2em;
-  margin-top: 4px;
-  text-shadow: 0 2px 12px rgba(251,236,210,0.9);
-}
-
-/* overlay 渐变消散：露出底下的花瓣雨 iframe */
-.outro-overlay.dissolve {
-  opacity: 0;
-  transition: opacity 1.5s ease;
   pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+.photo-preview-overlay.show { opacity: 1; pointer-events: auto; }
+.photo-preview-overlay.photo-preview-exit { opacity: 0; pointer-events: none; }
+.photo-preview-frame {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  left: 12px; right: 12px;
+  bottom: calc(100px + env(safe-area-inset-bottom, 0px));
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+  z-index: 1;
+  transform: scale(1.03);
+  transition: transform 0.4s cubic-bezier(0.2,0.9,0.3,1);
+}
+.photo-preview-overlay.show .photo-preview-frame { transform: scale(1); }
+.photo-preview-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-preview-actions {
+  position: absolute;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  left: 0; right: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 0 24px;
+}
+.photo-preview-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,0.12);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 16px;
+  padding: 14px 26px;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  min-width: 80px;
+}
+.photo-preview-btn-primary {
+  background: rgba(233,30,99,0.55);
+  border-color: rgba(233,30,99,0.6);
+}
+.video-preview-player-new {
+  width: 100%; height: 100%; object-fit: cover; display: block; background: #000;
+}
+
+@supports (padding-top: env(safe-area-inset-top)) {
+  .ar-ui-overlay { padding-bottom: calc(1.5rem + env(safe-area-inset-bottom)); }
+}
+
+/* 小屏适配 AR 控制栏 */
+@media (max-width: 430px) {
+  .ar-ui-overlay { flex-wrap: wrap; gap: 0.5rem; padding: 0.8rem 0.6rem; }
+  .ar-ui-btn { width: 42px; height: 42px; }
+  .ar-ui-btn svg { width: 20px; height: 20px; }
+  .ar-ui-btn-label { font-size: 9px; }
+  .ar-ui-btn-wrap { gap: 3px; }
+  .ar-petal-control { order: 10; padding: 0.35rem 0.8rem; font-size: 0.7rem; }
+  .ar-petal-control input[type="range"] { width: 70px; }
 }
 
 /* ============================================
@@ -987,21 +1233,6 @@ body {
 
 .btn-petal-rain:active {
   transform: scale(0.96);
-}
-
-.guide-arrow {
-  color: #b89878;
-  font-size: 0.65rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  opacity: 0.5;
-  margin-top: 4px;
-}
-
-.guide-arrow svg {
-  animation: bounce 1.5s ease-in-out infinite;
 }
 
 /* ============================================

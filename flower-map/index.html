@@ -259,24 +259,73 @@
         <div class="guide-divider"></div>
         <p class="guide-text">就算无法亲临花海<br>我们也为你备好了一场专属花雨</p>
         <button id="btn-petal-rain" class="btn-petal-rain">开启花雨</button>
-        <div class="guide-arrow">
-          <span>或继续下滑</span>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 5v14M5 12l7 7 7-7"/>
-          </svg>
-        </div>
       </div>
     </div>
 
   </div>
 
-  <!-- 花瓣雨 iframe（底层预加载，用于渐变过渡） -->
-  <iframe id="outro-iframe" class="outro-iframe" src="" frameborder="0" allowtransparency="true"></iframe>
-
-  <!-- 尾部过渡（无文案，纯彩铅渐变到花瓣雨） -->
-  <div id="outro-overlay" class="outro-overlay" style="display:none;">
-    <img id="outro-bg-a" class="outro-bg outro-bg-front" src="" alt="">
-    <img id="outro-bg-b" class="outro-bg outro-bg-back" src="" alt="">
+  <!-- AR 花瓣雨场景（初始隐藏） -->
+  <div id="ar-scene" class="ar-scene hidden">
+    <video id="camera-video" autoplay playsinline muted webkit-playsinline x5-video-player-type="h5-page"></video>
+    <div id="fallback-bg" class="ar-fallback-bg hidden"></div>
+    <canvas id="canvas-petals" style="display:none;"></canvas>
+    <canvas id="canvas-far" class="ar-petal-layer ar-layer-far"></canvas>
+    <canvas id="canvas-mid" class="ar-petal-layer ar-layer-mid"></canvas>
+    <canvas id="canvas-person" class="ar-person-layer"></canvas>
+    <canvas id="canvas-near" class="ar-petal-layer ar-layer-near"></canvas>
+    <div id="ar-ui-overlay" class="ar-ui-overlay">
+      <div class="ar-ui-btn-wrap">
+        <button id="btn-switch-camera" class="ar-ui-btn" title="翻转">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="5" y="9" width="14" height="10" rx="2"/>
+            <path d="M9 9V7.5a1 1 0 011-1h4a1 1 0 011 1V9"/>
+            <circle cx="12" cy="14" r="2.5"/>
+            <path d="M3.5 11A9.5 9.5 0 0112 2.5" stroke-width="1.6"/>
+            <path d="M12 2.5l-2.2 1.5M12 2.5l-1.2-2.2" stroke-width="1.6"/>
+            <path d="M20.5 13A9.5 9.5 0 0112 21.5" stroke-width="1.6"/>
+            <path d="M12 21.5l2.2-1.5M12 21.5l1.2 2.2" stroke-width="1.6"/>
+          </svg>
+        </button>
+        <span class="ar-ui-btn-label">翻转</span>
+      </div>
+      <div class="ar-ui-btn-wrap">
+        <button id="btn-photo" class="ar-ui-btn ar-ui-btn-capture" title="拍照">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <circle cx="12" cy="12" r="4" fill="currentColor"/>
+          </svg>
+        </button>
+        <span class="ar-ui-btn-label">拍照</span>
+      </div>
+      <div class="ar-ui-btn-wrap">
+        <button id="btn-record" class="ar-ui-btn ar-ui-btn-capture" title="录像">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+            <circle cx="12" cy="12" r="5" fill="#e53935" class="record-dot"/>
+          </svg>
+        </button>
+        <span class="ar-ui-btn-label">录像</span>
+      </div>
+      <div class="ar-ui-btn-wrap">
+        <button id="btn-wind" class="ar-ui-btn" title="风起">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9.59 4.59A2 2 0 1 1 11 8H2"/>
+            <path d="M12.59 19.41A2 2 0 1 0 14 16H2"/>
+            <path d="M17.73 7.73A2.5 2.5 0 1 1 19.5 12H2"/>
+          </svg>
+        </button>
+        <span class="ar-ui-btn-label">风起</span>
+      </div>
+      <div id="petal-count-control" class="ar-petal-control">
+        <label>花瓣密度</label>
+        <input type="range" id="petal-density" min="200" max="5000" value="3000" step="50">
+      </div>
+    </div>
+    <div id="fps-counter" class="ar-fps-counter"></div>
+    <div id="debug-panel" style="display:none;position:fixed;top:40px;left:8px;background:rgba(0,0,0,0.75);color:#0f0;font:11px/1.4 monospace;padding:8px 10px;border-radius:6px;z-index:9999;pointer-events:none;white-space:pre;max-width:90vw;"></div>
+    <div id="record-time" class="ar-record-time hidden">00:00</div>
+    <div id="capture-flash" class="ar-capture-flash"></div>
+    <div id="capture-toast" class="ar-capture-toast"></div>
   </div>
 
   <!-- 赏花地浮层 -->
@@ -293,6 +342,18 @@
       <p class="spot-tip">📅 五一假期5.1-5.5 · 建议提前预约</p>
     </div>
   </div>
+
+  <!-- Three.js + MediaPipe + 花瓣雨模块（本地 ar/ 目录，与花开地图一起部署） -->
+  <script src="ar/three.min.js"></script>
+  <script src="ar/selfie_segmentation.js"></script>
+  <script src="ar/camera.js"></script>
+  <script src="ar/segmentation.js"></script>
+  <script src="ar/body-collision.js"></script>
+  <script src="ar/particles.js"></script>
+  <script src="ar/gyroscope.js"></script>
+  <script src="ar/webgl-blur.js"></script>
+  <script src="ar/device-tier.js"></script>
+  <script src="ar/capture.js"></script>
 
   <script charset="utf-8" src="app.js"></script>
 

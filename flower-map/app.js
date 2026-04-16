@@ -684,191 +684,301 @@
     guide.classList.add('visible');
 
     var triggered = false;
-    var ready = false;
 
-    // 延迟2秒后才允许下拉触发，给用户阅读时间
-    setTimeout(function() { ready = true; }, 2000);
-
-    // 按钮点击直接触发
+    // 按钮点击直接启动 AR 花瓣雨（权限请求在用户交互上下文中）
     var btnRain = document.getElementById('btn-petal-rain');
     if (btnRain) {
-      btnRain.addEventListener('click', function() {
-        if (!triggered) { triggered = true; cleanup(); triggerOutroSequence(); }
-      });
-    }
-
-    var startY = 0;
-    function onTouchStart(e) { startY = e.touches[0].clientY; }
-    function onTouchMove(e) {
-      if (triggered || !ready) return;
-      if (startY - e.touches[0].clientY > 80) {
+      var handler = function(e) {
+        e.preventDefault();
+        if (triggered) return;
         triggered = true;
-        cleanup();
-        triggerOutroSequence();
-      }
+        startPetalRainAR();
+      };
+      btnRain.addEventListener('click', handler);
+      btnRain.addEventListener('touchend', handler);
     }
-    function onWheel(e) {
-      if (triggered || !ready) return;
-      var scrollY = window.pageYOffset || document.documentElement.scrollTop;
-      var docH = document.documentElement.scrollHeight;
-      var winH = window.innerHeight;
-      if (scrollY + winH >= docH - 50 && e.deltaY > 20) {
-        triggered = true;
-        cleanup();
-        triggerOutroSequence();
-      }
-    }
-    function cleanup() {
-      window.removeEventListener('touchstart', onTouchStart);
-      window.removeEventListener('touchmove', onTouchMove);
-      window.removeEventListener('wheel', onWheel);
-    }
-
-    window.addEventListener('touchstart', onTouchStart, { passive: true });
-    window.addEventListener('touchmove', onTouchMove, { passive: true });
-    window.addEventListener('wheel', onWheel, { passive: true });
   }
 
   // ==========================================
-  // 多点笔触扩散动画引擎
-  // 模拟多支画笔同时在不同位置落笔，像延时摄影
+  // AR 花瓣雨 — 直接在本页启动
+  // 在用户点击「开启花雨」的交互上下文中请求权限
   // ==========================================
-  function animateBrushSpread(el, duration, points, onDone) {
-    // points: [{x, y, delay, speed}] — 每个「笔触落点」
-    var startTime = null;
-    var maxR = 160; // 最大半径百分比（超过100%确保覆盖全屏）
+  var arStarted = false;
 
-    function buildMask(t) {
-      var gradients = [];
-      for (var i = 0; i < points.length; i++) {
-        var p = points[i];
-        var elapsed = Math.max(0, t - p.delay);
-        var progress = Math.min(1, elapsed / (duration * p.speed));
-        // ease-out cubic
-        progress = 1 - Math.pow(1 - progress, 3);
-        var r = progress * maxR;
-        if (r > 0.5) {
-          // 柔和边缘：实心区域 + 模糊过渡带
-          var inner = Math.max(0, r - 15);
-          gradients.push(
-            'radial-gradient(ellipse ' + (r * p.rx) + '% ' + (r * p.ry) + '% at ' + p.x + '% ' + p.y + '%, #000 ' + (inner / r * 100) + '%, transparent 100%)'
-          );
+  async function startPetalRainAR() {
+    if (arStarted) return;
+    arStarted = true;
+
+    var btnRain = document.getElementById('btn-petal-rain');
+    if (btnRain) {
+      btnRain.disabled = true;
+      btnRain.textContent = '正在请求权限...';
+    }
+
+    var isWx = /MicroMessenger/i.test(navigator.userAgent);
+
+    try {
+      // === 1. 陀螺仪权限 ===
+      var gyroGranted = false;
+      if (window.DeviceOrientationEvent) {
+        if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+          try {
+            var perm = await DeviceOrientationEvent.requestPermission();
+            gyroGranted = (perm === 'granted');
+          } catch (err) {
+            console.log('陀螺仪权限错误:', err.message);
+          }
+        } else {
+          gyroGranted = true;
         }
       }
-      if (gradients.length === 0) return 'none';
 
-      // 用 composite mask：多个渐变叠加
-      var maskVal = gradients.join(', ');
-      el.style.webkitMaskImage = maskVal;
-      el.style.maskImage = maskVal;
-      el.style.webkitMaskComposite = 'destination-in';
-      el.style.maskComposite = 'add';
-    }
-
-    function tick(now) {
-      if (!startTime) startTime = now;
-      var t = (now - startTime) / 1000;
-      if (t >= duration) {
-        // 完成：移除 mask 显示全部
-        el.style.webkitMaskImage = 'none';
-        el.style.maskImage = 'none';
-        if (onDone) onDone();
-        return;
+      // === 2. 摄像头权限 ===
+      var cameraStream = null;
+      async function tryGetCamera(retries) {
+        for (var attempt = 0; attempt <= retries; attempt++) {
+          if (attempt > 0) await new Promise(function(r) { setTimeout(r, 800); });
+          try {
+            return await navigator.mediaDevices.getUserMedia({
+              video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+              audio: false
+            });
+          } catch (err) {
+            try {
+              return await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+                audio: false
+              });
+            } catch (e2) {
+              try {
+                return await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+              } catch (e3) {
+                if (attempt === retries) return null;
+              }
+            }
+          }
+        }
+        return null;
       }
-      buildMask(t);
-      requestAnimationFrame(tick);
+
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        var maxRetries = isWx ? 2 : 0;
+        cameraStream = await tryGetCamera(maxRetries);
+      }
+
+      if (btnRain) btnRain.textContent = '正在加载...';
+
+      // === 3. 隐藏地图，显示 AR 场景 ===
+      var guide = document.getElementById('petal-rain-guide');
+      if (guide) { guide.classList.remove('visible'); guide.style.display = 'none'; }
+
+      var mapContainer = document.getElementById('map-container');
+      var progressBar = document.getElementById('progress-bar');
+      var arScene = document.getElementById('ar-scene');
+
+      // 全屏过渡：淡出地图
+      if (mapContainer) { mapContainer.style.transition = 'opacity 0.6s ease'; mapContainer.style.opacity = '0'; }
+      if (progressBar) { progressBar.style.transition = 'opacity 0.3s ease'; progressBar.style.opacity = '0'; }
+
+      await new Promise(function(r) { setTimeout(r, 600); });
+
+      if (mapContainer) mapContainer.style.display = 'none';
+      if (progressBar) progressBar.style.display = 'none';
+      // 防止地图的 body 样式影响 AR
+      document.body.style.overflow = 'hidden';
+      document.body.style.background = '#000';
+
+      if (arScene) arScene.classList.remove('hidden');
+
+      // === 4. 初始化花瓣雨模块 ===
+      var deviceTier = new DeviceTier();
+      var tierConfig = deviceTier.getRenderConfig();
+
+      // 摄像头
+      var cameraModule = new CameraManager();
+      if (cameraStream) {
+        cameraModule.initWithStream(cameraStream);
+      } else {
+        cameraModule._showFallback();
+      }
+
+      // 陀螺仪
+      var gyroscope = new GyroscopeManager();
+      await gyroscope.initWithPermission(gyroGranted);
+
+      // 花瓣粒子系统
+      var particles = null;
+      var segmentation = null;
+      var bodyCollision = null;
+
+      if (tierConfig.useCSSFallback) {
+        // 极低端设备 CSS 花瓣兜底
+        _createCSSPetals();
+      } else {
+        particles = new PetalParticleSystem();
+        particles.tierConfig = tierConfig;
+        // 花瓣纹理路径需要指向 CDN（不是本地相对路径）
+        particles.petalTexturePaths = [
+          'img/petal1v2.png', 'img/petal2v2.png', 'img/petal3v2.png', 'img/petal4v2.png',
+          'img/petal5v2.png', 'img/petal6v2.png', 'img/petal7v2.png', 'img/petal8v2.png'
+        ];
+        particles.init();
+
+        var isMobile = /Mobi|Android|iPhone/i.test(navigator.userAgent);
+        var initialCount = tierConfig.petalCount;
+        if (isMobile && deviceTier.tier === 'high') initialCount = 2000;
+        particles.petalCount = initialCount;
+        var $petalDensity = document.getElementById('petal-density');
+        if ($petalDensity) $petalDensity.value = initialCount;
+        if (deviceTier.tier === 'low' && $petalDensity) $petalDensity.max = 1500;
+        else if (deviceTier.tier === 'medium' && $petalDensity) $petalDensity.max = 3000;
+
+        // CSS blur 降级
+        if (!tierConfig.enableCSSBlur) {
+          ['canvas-far', 'canvas-mid', 'canvas-near'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) { el.style.filter = 'none'; el.style.webkitFilter = 'none'; }
+          });
+        } else if (deviceTier.tier === 'medium') {
+          var farEl = document.getElementById('canvas-far');
+          var midEl = document.getElementById('canvas-mid');
+          var nearEl = document.getElementById('canvas-near');
+          if (farEl) { farEl.style.filter = 'blur(' + tierConfig.cssBlurFar + 'px)'; }
+          if (midEl) { midEl.style.filter = 'blur(' + tierConfig.cssBlurMid + 'px)'; }
+          if (nearEl) { nearEl.style.filter = 'blur(' + tierConfig.cssBlurNear + 'px)'; }
+        }
+
+        // 人体分割
+        bodyCollision = new BodyCollisionDetector();
+        if (cameraStream && tierConfig.enableSegmentation) {
+          segmentation = new PersonSegmentation();
+          if (tierConfig.segmentationFrameSkip > 0) {
+            segmentation._tierFrameSkip = tierConfig.segmentationFrameSkip;
+          }
+          var segOk = await segmentation.init();
+          if (segOk) {
+            if (segmentation._tierFrameSkip && isMobile) {
+              segmentation.frameSkip = Math.max(segmentation.frameSkip, segmentation._tierFrameSkip);
+            }
+            segmentation.bodyCollision = bodyCollision;
+            segmentation.start();
+            particles.bodyCollision = bodyCollision;
+            document.getElementById('canvas-person').style.display = 'block';
+          } else {
+            segmentation = null;
+          }
+        }
+      }
+
+      // minimal 模式隐藏不需要的控件
+      if (tierConfig.useCSSFallback) {
+        var petalCtrl = document.getElementById('petal-count-control');
+        if (petalCtrl) petalCtrl.style.display = 'none';
+        var windBtn = document.getElementById('btn-wind');
+        if (windBtn) windBtn.parentElement.style.display = 'none';
+      }
+
+      // === 5. 初始化拍照/录像 ===
+      var capture = new CaptureManager();
+      capture.cameraManager = cameraModule;
+      capture.deviceTier = deviceTier.tier;
+      if (particles) capture.particleSystem = particles;
+      if (segmentation) capture.segmentation = segmentation;
+      capture.init();
+      if (particles) particles.captureManager = capture;
+
+      window._gyroscope = gyroscope;
+
+      var btnSwitch = document.getElementById('btn-switch-camera');
+      if (!cameraModule.hasCamera && btnSwitch) {
+        btnSwitch.classList.add('hidden');
+      }
+
+      // === 6. 启动动画循环 ===
+      var animationId = null;
+      function startAnimationLoop() {
+        function loop() {
+          animationId = requestAnimationFrame(loop);
+          if (gyroscope) gyroscope.update();
+          if (particles) particles.update(gyroscope ? gyroscope.getCameraData() : null);
+          if (segmentation) segmentation.update();
+        }
+        loop();
+      }
+      startAnimationLoop();
+
+      setInterval(function() {
+        if (particles) particles.autoTunePerformance();
+      }, 2000);
+
+      // === 7. 绑定 AR 场景 UI 事件 ===
+      if (btnSwitch) {
+        var switchHandler = function(e) {
+          e.preventDefault();
+          if (capture && capture.isRecording) return;
+          if (cameraModule) cameraModule.switchCamera();
+        };
+        btnSwitch.addEventListener('click', switchHandler);
+        btnSwitch.addEventListener('touchend', switchHandler);
+      }
+
+      var $petalDensityAR = document.getElementById('petal-density');
+      if ($petalDensityAR) {
+        $petalDensityAR.addEventListener('input', function(e) {
+          var count = parseInt(e.target.value);
+          if (particles) particles.setPetalCount(count);
+          if (capture) capture.resetMotionBlurHistory();
+        });
+      }
+
+      var $btnWind = document.getElementById('btn-wind');
+      if ($btnWind) {
+        var windHandler = function(e) {
+          e.preventDefault();
+          if (!particles) return;
+          if (capture && capture.isRecording) return;
+          particles.triggerWindGust();
+          $btnWind.classList.add('wind-active');
+          var dur = (particles._userGust && particles._userGust.duration) || 4;
+          setTimeout(function() { $btnWind.classList.remove('wind-active'); }, dur * 1000);
+        };
+        $btnWind.addEventListener('click', windHandler);
+        $btnWind.addEventListener('touchend', windHandler);
+      }
+
+      // 页面可见性控制
+      document.addEventListener('visibilitychange', function() {
+        if (document.hidden) {
+          if (animationId) { cancelAnimationFrame(animationId); animationId = null; }
+        } else {
+          if (!animationId && particles) { particles.clock.getDelta(); startAnimationLoop(); }
+        }
+      });
+
+    } catch (err) {
+      console.error('AR 启动失败:', err);
+      if (btnRain) {
+        btnRain.disabled = false;
+        btnRain.textContent = '重试';
+        arStarted = false;
+      }
     }
-    requestAnimationFrame(tick);
   }
 
-  // ==========================================
-  // 尾部过渡 —「不摇树的花雨」v6
-  // 多点笔触扩散 + 着色蔓延 + 压缩时间线 6.5s
-  // ==========================================
-  var outroTriggered = false;
-
-  function triggerOutroSequence() {
-    if (outroTriggered) return;
-    outroTriggered = true;
-
-    // 隐藏引导区
-    var guide = document.getElementById('petal-rain-guide');
-    if (guide) { guide.classList.remove('visible'); guide.style.display = 'none'; }
-
-    var overlay = document.getElementById('outro-overlay');
-    var bgA = document.getElementById('outro-bg-a');
-    var bgB = document.getElementById('outro-bg-b');
-    var outroIframe = document.getElementById('outro-iframe');
-    if (!overlay) return;
-
-    // 彩铅背景图
-    var bgImgs = ['img/1.jpg', 'img/sketch-flowers.jpg', 'img/colored-flowers.jpg'];
-    bgImgs.forEach(function(s) { var i = new Image(); i.src = s; });
-
-    // 预加载花瓣雨
-    if (outroIframe) {
-      outroIframe.src = 'https://h5.news.qq.com/qqfile/redian/petals_fall.html';
+  // CSS 花瓣兜底（极低端设备）
+  function _createCSSPetals() {
+    var container = document.createElement('div');
+    container.className = 'css-petals-container';
+    var sceneEl = document.getElementById('ar-scene');
+    if (!sceneEl) return;
+    sceneEl.appendChild(container);
+    for (var i = 0; i < 30; i++) {
+      var petal = document.createElement('div');
+      petal.className = 'css-petal';
+      var size = 12 + Math.random() * 16;
+      petal.style.cssText = 'width:' + size + 'px;height:' + size + 'px;left:' + (Math.random() * 100) + '%;animation-duration:' + (6 + Math.random() * 6) + 's;animation-delay:' + (Math.random() * 8) + 's;opacity:' + (0.4 + Math.random() * 0.4) + ';';
+      container.appendChild(petal);
     }
-
-    var sketchPoints = [
-      { x: 30, y: 25, delay: 0,   speed: 0.75, rx: 1.2, ry: 1.0 },
-      { x: 70, y: 15, delay: 0.1, speed: 0.7,  rx: 1.0, ry: 1.3 },
-      { x: 50, y: 55, delay: 0.15, speed: 0.65, rx: 1.3, ry: 1.1 },
-      { x: 20, y: 75, delay: 0.2, speed: 0.7,  rx: 1.1, ry: 1.2 },
-      { x: 80, y: 70, delay: 0.1, speed: 0.75, rx: 1.0, ry: 1.0 },
-      { x: 50, y: 90, delay: 0.25, speed: 0.8,  rx: 1.4, ry: 0.8 },
-    ];
-
-    var colorPoints = [
-      { x: 50, y: 50, delay: 0,   speed: 0.6, rx: 1.1, ry: 1.1 },
-      { x: 25, y: 30, delay: 0.2, speed: 0.65, rx: 1.3, ry: 1.0 },
-      { x: 75, y: 35, delay: 0.15, speed: 0.7,  rx: 1.0, ry: 1.2 },
-      { x: 35, y: 75, delay: 0.25, speed: 0.7,  rx: 1.2, ry: 1.0 },
-      { x: 70, y: 80, delay: 0.2, speed: 0.75, rx: 1.0, ry: 1.3 },
-      { x: 50, y: 10, delay: 0.3, speed: 0.8,  rx: 1.5, ry: 0.7 },
-    ];
-
-    // 阶段0：显示 overlay + 暖底色
-    bgA.src = bgImgs[0];
-    bgA.style.opacity = '1';
-    bgB.style.opacity = '0';
-    overlay.style.display = '';
-    overlay.offsetHeight;
-    overlay.classList.add('visible');
-
-    // 阶段1（0.5s）：线稿揭示
-    setTimeout(function() {
-      bgB.src = bgImgs[1];
-      bgB.style.opacity = '1';
-      bgB.classList.add('brush-reveal');
-      animateBrushSpread(bgB, 1.2, sketchPoints);
-    }, 500);
-
-    // 阶段2（1.7s）：着色蔓延
-    setTimeout(function() {
-      var colorLayer = document.createElement('img');
-      colorLayer.className = 'outro-bg color-spread';
-      colorLayer.src = bgImgs[2];
-      colorLayer.alt = '';
-      overlay.appendChild(colorLayer);
-      animateBrushSpread(colorLayer, 1.5, colorPoints);
-    }, 1700);
-
-    // 阶段3（3.5s）：消散到花瓣雨
-    setTimeout(function() {
-      if (outroIframe) {
-        outroIframe.classList.add('ready');
-      }
-      overlay.classList.add('dissolve');
-    }, 3500);
-
-    // 阶段4（5s）：overlay 完全消失
-    setTimeout(function() {
-      overlay.style.display = 'none';
-      if (outroIframe) {
-        outroIframe.classList.add('interactive');
-      }
-    }, 5000);
   }
 
   // ==========================================
