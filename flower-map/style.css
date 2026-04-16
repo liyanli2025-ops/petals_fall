@@ -27,69 +27,178 @@ body {
 }
 
 /* ============================================
-   开屏动画
+   开屏页（花瓣雨风格）
    ============================================ */
 .intro {
   position: fixed;
   inset: 0;
   z-index: 1000;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  background: linear-gradient(180deg, #fdf6e3 0%, #fef9ef 40%, #fdf1db 100%);
+  justify-content: flex-end;
+  background: #fdf6e3;
   transition: opacity 0.8s ease, transform 0.8s ease;
   overflow: hidden;
 }
 
+.intro.fade-out {
+  opacity: 0;
+  transform: scale(1.05);
+  pointer-events: none;
+}
+
+/* 彩铅背景图 — 兜底（视频下层） */
 .intro-bg {
   position: absolute;
   inset: 0;
   background-size: cover;
-  background-position: center 60%;
-  opacity: 0.35;
-  filter: sepia(0.15) saturate(0.85) brightness(1.05);
+  background-position: center bottom;
+  z-index: 0;
 }
 
-.intro.fade-out {
-  opacity: 0;
-  transform: translateY(-30px);
-  pointer-events: none;
-}
-
-.intro-content {
-  text-align: center;
-  padding: 20px;
-  position: relative;
-  z-index: 1;
+/* 视频背景 — 放大裁掉左右白边 */
+.intro-video {
+  position: absolute;
+  inset: 0;
   width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 1;
+  transform: scale(1.12);
+  transform-origin: center center;
 }
 
-/* 开屏 Logo 图片 */
-.intro-logo {
-  display: block;
-  width: 80%;
-  max-width: 340px;
-  margin: 0 auto 24px;
-  filter: drop-shadow(0 2px 10px rgba(90, 74, 58, 0.55))
-          drop-shadow(0 0 30px rgba(90, 74, 58, 0.25));
-  opacity: 0;
-  animation: fadeUp 0.8s ease 0.3s forwards;
+/* 遮罩层（不显示） */
+.intro-overlay {
+  display: none;
 }
 
-.intro-arrow {
-  margin-top: 60px;
-  opacity: 0;
-  animation: fadeUp 0.8s ease 1.8s forwards;
-  color: #b89878;
-  font-size: 0.85rem;
+/* 腾讯新闻Logo */
+.intro-txnews-logo {
+  position: absolute;
+  top: calc(16px + env(safe-area-inset-top, 0px));
+  right: 16px;
+  width: 108px;
+  height: auto;
+  z-index: 10;
+  opacity: 0.9;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.35)) drop-shadow(0 0 8px rgba(0,0,0,0.15));
+}
+
+/* 内容层 — 居中偏下，适配小屏 */
+.intro-content {
+  position: relative;
+  z-index: 10;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  text-align: center;
+  padding: 1.5rem 2.5rem;
+  margin-top: auto;
+  margin-bottom: 8vh;
+  animation: introFadeInUp 1.2s ease-out;
 }
 
-.intro-arrow svg {
-  animation: bounce 1.5s ease-in-out infinite;
+/* 柔雾层（暖色调） */
+.intro-content::before {
+  content: '';
+  position: absolute;
+  top: -30%;
+  left: -20%;
+  right: -20%;
+  bottom: -20%;
+  z-index: -1;
+  background: radial-gradient(
+    ellipse at 52% 55%,
+    rgba(253, 246, 227, 0.75) 0%,
+    rgba(253, 246, 227, 0.5) 35%,
+    rgba(253, 246, 227, 0.2) 65%,
+    transparent 100%
+  );
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  -webkit-mask-image: radial-gradient(ellipse at 50% 55%, black 20%, transparent 72%);
+  mask-image: radial-gradient(ellipse at 50% 55%, black 20%, transparent 72%);
+  pointer-events: none;
+  animation: introMistFadeIn 2s ease-out 0.6s both;
+}
+
+@keyframes introMistFadeIn {
+  0% { opacity: 0; transform: scale(0.8); backdrop-filter: blur(0px); -webkit-backdrop-filter: blur(0px); }
+  100% { opacity: 1; transform: scale(1); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+}
+
+@keyframes introFadeInUp {
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Logo */
+.intro-logo {
+  display: block;
+  width: 72vw;
+  max-width: 360px;
+  height: auto;
+  margin: 0 auto 1rem;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.25)) drop-shadow(0 2px 8px rgba(0,0,0,0.15));
+  animation: introLogoFadeIn 1.6s cubic-bezier(0.23, 1, 0.32, 1) both;
+  pointer-events: none;
+}
+
+@keyframes introLogoFadeIn {
+  0% { opacity: 0; transform: translateY(18px) scale(0.95); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* 副标题 */
+.intro-subtitle {
+  font-size: 0.85rem;
+  color: #8a7a68;
+  letter-spacing: 0.3em;
+  margin-bottom: 1.5rem;
+  font-weight: 300;
+}
+
+/* 描述文字 */
+.intro-desc {
+  font-size: 0.85rem;
+  color: #8a7a68;
+  line-height: 1.8;
+  margin-bottom: 2rem;
+}
+
+/* 进入按钮 */
+.btn-enter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 48px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, rgba(212,114,92,0.9) 0%, rgba(232,135,154,0.9) 100%);
+  border: none;
+  border-radius: 30px;
+  cursor: pointer;
+  letter-spacing: 0.1em;
+  box-shadow: 0 4px 20px rgba(212,114,92,0.3), 0 0 40px rgba(212,114,92,0.1);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn-enter:active {
+  transform: scale(0.96);
+  box-shadow: 0 2px 10px rgba(212,114,92,0.4);
+}
+
+/* 底部提示 */
+.intro-tip {
+  font-size: 0.7rem;
+  color: rgba(138, 122, 104, 0.5);
+  margin-top: 16px;
+  letter-spacing: 0.05em;
 }
 
 @keyframes fadeUp {
@@ -296,6 +405,19 @@ body {
   opacity: 1;
 }
 
+/* 蔷薇、紫藤花苞加大到和花朵一样 */
+.city-node[data-city="wuhan"] .flower-bud-img,
+.city-node[data-city="wuyuan"] .flower-bud-img {
+  width: 110px;
+  height: 110px;
+}
+
+/* 杜鹃花苞增大 */
+.city-node[data-city="changsha"] .flower-bud-img {
+  width: 85px;
+  height: 85px;
+}
+
 /* 花苞呼吸动画 */
 .city-node:not(.bloomed) .flower-bud-img {
   animation: budPulse 2s ease-in-out infinite;
@@ -419,19 +541,60 @@ body {
 }
 
 .city-dot {
-  width: 10px;
-  height: 10px;
+  position: relative;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1.5px solid #d4725c;
+  margin-bottom: 4px;
+}
+
+/* 脉冲光圈 */
+.city-dot::before,
+.city-dot::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 1px solid rgba(212, 114, 92, 0.4);
+  animation: dotPulse 2.5s ease-out infinite;
+}
+
+.city-dot::after {
+  animation-delay: 1.25s;
+}
+
+@keyframes dotPulse {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+}
+
+/* 中心小点 */
+.city-dot-inner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
   background: #d4725c;
-  border: 2px solid #fdf6e3;
-  box-shadow: 0 0 0 1.5px #d4725c, 0 1px 4px rgba(212, 114, 92, 0.3);
-  margin-bottom: 2px;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  transform: translate(-50%, -50%);
 }
 
 .city-node.bloomed .city-dot {
-  transform: scale(1.3);
-  box-shadow: 0 0 0 1.5px #d4725c, 0 0 12px rgba(212, 114, 92, 0.5);
+  border-color: #d4725c;
+}
+
+.city-node.bloomed .city-dot::before,
+.city-node.bloomed .city-dot::after {
+  border-color: rgba(212, 114, 92, 0.5);
 }
 
 .city-name {
@@ -496,7 +659,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0;
+  gap: 6px;
   opacity: 0;
   transition: opacity 0.5s ease;
 }
@@ -505,12 +668,27 @@ body {
   opacity: 1;
 }
 
-.progress-track {
-  width: 3px;
+.progress-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #b89878;
+  letter-spacing: 0.05em;
+}
+
+.progress-wrapper {
+  position: relative;
+  width: 8px;
   height: 200px;
+}
+
+.progress-track {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 3px;
+  height: 100%;
   background: rgba(180, 160, 130, 0.2);
   border-radius: 2px;
-  position: relative;
   overflow: hidden;
 }
 
@@ -530,10 +708,12 @@ body {
   top: 0;
   left: 50%;
   transform: translateX(-50%);
-  height: 200px;
+  width: 8px;
+  height: 100%;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  align-items: center;
 }
 
 .progress-dot {
@@ -557,25 +737,7 @@ body {
    方向指示器
    ============================================ */
 .direction-indicator {
-  position: fixed;
-  left: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 100;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  font-size: 0.7rem;
-  color: #b89878;
-  opacity: 0;
-  transition: opacity 0.5s ease;
-}
-
-.dir-line {
-  width: 1px;
-  height: 40px;
-  background: linear-gradient(180deg, #b89878, rgba(184, 152, 120, 0.2));
+  display: none;
 }
 
 /* ============================================
@@ -765,6 +927,84 @@ body {
 }
 
 /* ============================================
+   花瓣雨引导区（底部）
+   ============================================ */
+.petal-rain-guide {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  padding: 30px 20px 50px;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  z-index: 20;
+}
+
+.petal-rain-guide.visible {
+  opacity: 1;
+}
+
+.guide-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.guide-divider {
+  width: 40px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #c4a882, transparent);
+  margin-bottom: 4px;
+}
+
+.guide-text {
+  font-size: 0.95rem;
+  line-height: 1.8;
+  color: #8a7a68;
+  letter-spacing: 0.08em;
+  font-style: italic;
+}
+
+.btn-petal-rain {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 40px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, rgba(212,114,92,0.85) 0%, rgba(232,135,154,0.85) 100%);
+  border: none;
+  border-radius: 25px;
+  cursor: pointer;
+  letter-spacing: 0.1em;
+  box-shadow: 0 3px 16px rgba(212,114,92,0.25);
+  transition: transform 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn-petal-rain:active {
+  transform: scale(0.96);
+}
+
+.guide-arrow {
+  color: #b89878;
+  font-size: 0.65rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  opacity: 0.5;
+  margin-top: 4px;
+}
+
+.guide-arrow svg {
+  animation: bounce 1.5s ease-in-out infinite;
+}
+
+/* ============================================
    响应式适配
    ============================================ */
 @media (min-width: 500px) {
@@ -785,4 +1025,143 @@ body {
   .trans-layer-landing .landing-content {
     padding-bottom: calc(40px + env(safe-area-inset-bottom));
   }
+}
+
+/* ============================================
+   赏花地浮层
+   ============================================ */
+.city-card-btn {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.spot-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(90, 74, 58, 0.3);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.spot-overlay.visible {
+  opacity: 1;
+}
+
+.spot-card {
+  position: relative;
+  width: 85%;
+  max-width: 340px;
+  background: linear-gradient(180deg, #fdf6e3 0%, #fef8ec 50%, #fbecd2 100%);
+  border-radius: 16px;
+  padding: 28px 24px 20px;
+  box-shadow: 0 8px 40px rgba(90, 74, 58, 0.2), 0 0 0 1px rgba(196, 168, 130, 0.2);
+  transform: translateY(20px);
+  transition: transform 0.3s ease;
+  overflow: hidden;
+}
+
+/* 花朵水印（隐隐约约） */
+.spot-watermark {
+  position: absolute;
+  right: -20px;
+  bottom: -20px;
+  width: 160px;
+  height: 160px;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  opacity: 0.08;
+  pointer-events: none;
+}
+
+.spot-overlay.visible .spot-card {
+  transform: translateY(0);
+}
+
+.spot-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: rgba(180, 160, 130, 0.15);
+  border-radius: 50%;
+  font-size: 18px;
+  color: #a08060;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.spot-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.spot-city-name {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: #5a4a3a;
+  letter-spacing: 0.1em;
+}
+
+.spot-flower-tag {
+  font-size: 0.75rem;
+  color: #d4725c;
+  background: rgba(212, 114, 92, 0.1);
+  padding: 2px 8px;
+  border-radius: 10px;
+  letter-spacing: 0.05em;
+}
+
+.spot-title {
+  font-size: 0.8rem;
+  color: #a08060;
+  letter-spacing: 0.15em;
+  margin-bottom: 12px;
+}
+
+.spot-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px;
+}
+
+.spot-list li {
+  position: relative;
+  padding: 8px 0 8px 18px;
+  font-size: 0.85rem;
+  color: #5a4a3a;
+  line-height: 1.5;
+  border-bottom: 1px solid rgba(196, 168, 130, 0.15);
+}
+
+.spot-list li:last-child {
+  border-bottom: none;
+}
+
+.spot-list li::before {
+  content: '🌸';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  font-size: 0.7rem;
+}
+
+.spot-tip {
+  font-size: 0.7rem;
+  color: #a08060;
+  text-align: center;
+  opacity: 0.7;
 }

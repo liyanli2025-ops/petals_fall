@@ -9,14 +9,14 @@
   // 配置
   // ==========================================
   var CITIES = [
-    { id: 'harbin',     name: '哈尔滨', flower: '丁香',   colors: ['#c9a0dc', '#a87cc4', '#d4b8e8', '#b090d0'], petalImg: 'img/petal-lilac.png' },
-    { id: 'beijing',    name: '北京',   flower: '玉兰',   colors: ['#fff5f9', '#f8dfe8', '#fce8f0', '#f0d0e0'], petalImg: 'img/petal-magnolia.png' },
-    { id: 'luoyang',    name: '洛阳',   flower: '牡丹',   colors: ['#f2a0b0', '#e87890', '#f5c0cc', '#e06080'], petalImg: 'img/petal-peony.png' },
-    { id: 'wuhan',      name: '武汉',   flower: '樱花',   colors: ['#fdd9e4', '#f8b4c8', '#fce0ea', '#f5a8c0'], petalImg: 'img/petal-cherry.png' },
-    { id: 'wuyuan',     name: '婺源',   flower: '油菜花', colors: ['#ffd700', '#f5c400', '#ffe040', '#e8b800'], petalImg: 'img/petal-rapeseed.png' },
-    { id: 'changsha',   name: '长沙',   flower: '杜鹃',   colors: ['#f06888', '#e04868', '#f08898', '#d03858'], petalImg: 'img/petal-azalea.png' },
-    { id: 'guangzhou',  name: '广州',   flower: '木棉',   colors: ['#f06030', '#e04820', '#f58050', '#d03818'], petalImg: 'img/petal-kapok.png' },
-    { id: 'sanya',      name: '三亚',   flower: '三角梅', colors: ['#f040a0', '#d83088', '#f060b0', '#c02878'], petalImg: 'img/petal-bougainvillea.png' }
+    { id: 'harbin',     name: '哈尔滨', flower: '丁香花',  colors: ['#c9a0dc', '#a87cc4', '#d4b8e8', '#b090d0'], petalImg: 'img/petal-lilac.png' },
+    { id: 'beijing',    name: '北京',   flower: '芍药花',  colors: ['#f0b8c8', '#e8a0b8', '#f5c8d8', '#e090a8'], petalImg: 'img/petal-shaoyao.png' },
+    { id: 'luoyang',    name: '洛阳',   flower: '牡丹花',  colors: ['#f2a0b0', '#e87890', '#f5c0cc', '#e06080'], petalImg: 'img/petal-peony.png' },
+    { id: 'wuhan',      name: '武汉',   flower: '蔷薇花',  colors: ['#f5b8c8', '#f0a0b4', '#f8c8d8', '#e890a4'], petalImg: 'img/petal-rosa.png' },
+    { id: 'changsha',   name: '长沙',   flower: '杜鹃花',  colors: ['#f06888', '#e04868', '#f08898', '#d03858'], petalImg: 'img/petal-azalea.png' },
+    { id: 'wuyuan',     name: '婺源',   flower: '紫藤花',  colors: ['#b090d0', '#9878c0', '#c8a8e0', '#8868b0'], petalImg: 'img/petal-wisteria.png' },
+    { id: 'guangzhou',  name: '广州',   flower: '凤凰木',  colors: ['#f06030', '#e04820', '#f58050', '#d03818'], petalImg: 'img/petal-delonix.png' },
+    { id: 'sanya',      name: '三亚',   flower: '三角梅',  colors: ['#f040a0', '#d83088', '#f060b0', '#c02878'], petalImg: 'img/petal-bougainvillea.png' }
   ];
 
   // ==========================================
@@ -70,6 +70,14 @@
 
     var dismissed = false;
 
+    // 按钮点击进入
+    var btnEnter = document.getElementById('btn-enter');
+    if (btnEnter) {
+      btnEnter.addEventListener('click', function() {
+        if (!dismissed) { dismissed = true; dismissIntro(); }
+      });
+    }
+
     var startY = 0;
     intro.addEventListener('touchstart', function(e) {
       startY = e.touches[0].clientY;
@@ -90,17 +98,6 @@
         dismissIntro();
       }
     }, { passive: true });
-
-    var arrow = intro.querySelector('.intro-arrow');
-    if (arrow) {
-      arrow.addEventListener('click', function() {
-        if (!dismissed) { dismissed = true; dismissIntro(); }
-      });
-    }
-
-    intro.addEventListener('click', function() {
-      if (!dismissed) { dismissed = true; dismissIntro(); }
-    });
   }
 
   function dismissIntro() {
@@ -113,6 +110,10 @@
 
     intro.classList.add('fade-out');
     state.introVisible = false;
+
+    // 暂停视频节省资源
+    var video = intro.querySelector('.intro-video');
+    if (video) { video.pause(); video.src = ''; }
 
     var pb = document.getElementById('progress-bar');
     if (pb) pb.classList.add('visible');
@@ -205,13 +206,13 @@
 
     // 每个城市区段对应的花瓣图片
     var segmentPetals = [
-      'img/petal-lilac.png',        // 哈尔滨 丁香
-      'img/petal-magnolia.png',     // 北京 玉兰
-      'img/petal-peony.png',        // 洛阳 牡丹
-      'img/petal-cherry.png',       // 武汉 樱花
-      'img/petal-rapeseed.png',     // 婺源 油菜花
-      'img/petal-azalea.png',       // 长沙 杜鹃
-      'img/petal-kapok.png',        // 广州 木棉
+      'img/petal-lilac.png',        // 哈尔滨 丁香花
+      'img/petal-shaoyao.png',      // 北京 芍药花
+      'img/petal-peony.png',        // 洛阳 牡丹花
+      'img/petal-rosa.png',         // 武汉 蔷薇花
+      'img/petal-azalea.png',       // 长沙 杜鹃花
+      'img/petal-wisteria.png',     // 婺源 紫藤花
+      'img/petal-delonix.png',      // 广州 凤凰木
       'img/petal-bougainvillea.png' // 三亚 三角梅
     ];
 
@@ -426,10 +427,12 @@
     var petalImg = state.petalImages[city.id];
 
     // 三层景深配置：[远景, 中景, 近景]（精简数量）
+    // 凤凰木(广州, index=6) 花瓣更少更小
+    var isDelonix = (cityIndex === 6);
     var layerConfigs = [
-      { layer: 0, sizeMin: 4,  sizeMax: 8,  speedMin: 1.0, speedMax: 3.5, count: 6 },
-      { layer: 1, sizeMin: 8,  sizeMax: 16, speedMin: 1.2, speedMax: 4.0, count: 8 },
-      { layer: 2, sizeMin: 14, sizeMax: 22, speedMin: 0.8, speedMax: 2.5, count: 4 }
+      { layer: 0, sizeMin: isDelonix ? 3 : 4,  sizeMax: isDelonix ? 6 : 8,  speedMin: 1.0, speedMax: 3.5, count: isDelonix ? 3 : 6 },
+      { layer: 1, sizeMin: isDelonix ? 5 : 8,  sizeMax: isDelonix ? 10 : 16, speedMin: 1.2, speedMax: 4.0, count: isDelonix ? 5 : 8 },
+      { layer: 2, sizeMin: isDelonix ? 8 : 14, sizeMax: isDelonix ? 14 : 22, speedMin: 0.8, speedMax: 2.5, count: isDelonix ? 2 : 4 }
     ];
 
     function burst(delay, scale) {
@@ -578,9 +581,9 @@
 
     if (navigator.vibrate) navigator.vibrate(25);
 
-    // 三亚（最后一个城市）绽放后，2秒后自动触发尾部过渡
+    // 三亚（最后一个城市）绽放后，显示花瓣雨引导区
     if (index === 7) {
-      setTimeout(triggerOutroSequence, 2000);
+      setTimeout(showPetalRainGuide, 1500);
     }
   }
 
@@ -603,6 +606,58 @@
       n.addEventListener('click', function() { triggerBloom(n, i); });
     });
 
+    // 花朵图片映射（用于浮层水印）
+    var bloomImgMap = {};
+    CITIES.forEach(function(c) {
+      bloomImgMap[c.id] = c.petalImg.replace('petal-', 'bloom-');
+    });
+
+    // 赏花地浮层：点击 city-card 弹出
+    var spotOverlay = document.getElementById('spot-overlay');
+    document.querySelectorAll('.city-card-btn').forEach(function(card) {
+      card.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var node = card.closest('.city-node');
+        var idx = parseInt(node.getAttribute('data-index'), 10);
+        var city = CITIES[idx];
+        var spots = (node.getAttribute('data-spots') || '').split('|');
+        if (!spotOverlay || !city) return;
+
+        spotOverlay.querySelector('.spot-city-name').textContent = city.name;
+        spotOverlay.querySelector('.spot-flower-name').textContent = city.flower;
+        // 设置水印
+        var watermark = spotOverlay.querySelector('.spot-watermark');
+        if (watermark) {
+          watermark.style.backgroundImage = 'url(' + (bloomImgMap[city.id] || '') + ')';
+        }
+        var list = spotOverlay.querySelector('.spot-list');
+        list.innerHTML = '';
+        spots.forEach(function(s) {
+          if (!s.trim()) return;
+          var li = document.createElement('li');
+          li.textContent = s.trim();
+          list.appendChild(li);
+        });
+        spotOverlay.style.display = '';
+        spotOverlay.offsetHeight;
+        spotOverlay.classList.add('visible');
+      });
+    });
+
+    // 关闭浮层
+    if (spotOverlay) {
+      spotOverlay.querySelector('.spot-close').addEventListener('click', function() {
+        spotOverlay.classList.remove('visible');
+        setTimeout(function() { spotOverlay.style.display = 'none'; }, 300);
+      });
+      spotOverlay.addEventListener('click', function(e) {
+        if (e.target === spotOverlay) {
+          spotOverlay.classList.remove('visible');
+          setTimeout(function() { spotOverlay.style.display = 'none'; }, 300);
+        }
+      });
+    }
+
     var dirEl = document.querySelector('.direction-indicator');
     var showing = false;
     var hideTimer = null;
@@ -616,6 +671,62 @@
         }, 1500);
       }
     }, { passive: true });
+  }
+
+  // ==========================================
+  // 花瓣雨引导区
+  // ==========================================
+  function showPetalRainGuide() {
+    var guide = document.getElementById('petal-rain-guide');
+    if (!guide) return;
+    guide.style.display = '';
+    guide.offsetHeight;
+    guide.classList.add('visible');
+
+    var triggered = false;
+    var ready = false;
+
+    // 延迟2秒后才允许下拉触发，给用户阅读时间
+    setTimeout(function() { ready = true; }, 2000);
+
+    // 按钮点击直接触发
+    var btnRain = document.getElementById('btn-petal-rain');
+    if (btnRain) {
+      btnRain.addEventListener('click', function() {
+        if (!triggered) { triggered = true; cleanup(); triggerOutroSequence(); }
+      });
+    }
+
+    var startY = 0;
+    function onTouchStart(e) { startY = e.touches[0].clientY; }
+    function onTouchMove(e) {
+      if (triggered || !ready) return;
+      if (startY - e.touches[0].clientY > 80) {
+        triggered = true;
+        cleanup();
+        triggerOutroSequence();
+      }
+    }
+    function onWheel(e) {
+      if (triggered || !ready) return;
+      var scrollY = window.pageYOffset || document.documentElement.scrollTop;
+      var docH = document.documentElement.scrollHeight;
+      var winH = window.innerHeight;
+      if (scrollY + winH >= docH - 50 && e.deltaY > 20) {
+        triggered = true;
+        cleanup();
+        triggerOutroSequence();
+      }
+    }
+    function cleanup() {
+      window.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('wheel', onWheel);
+    }
+
+    window.addEventListener('touchstart', onTouchStart, { passive: true });
+    window.addEventListener('touchmove', onTouchMove, { passive: true });
+    window.addEventListener('wheel', onWheel, { passive: true });
   }
 
   // ==========================================
@@ -680,45 +791,44 @@
     if (outroTriggered) return;
     outroTriggered = true;
 
+    // 隐藏引导区
+    var guide = document.getElementById('petal-rain-guide');
+    if (guide) { guide.classList.remove('visible'); guide.style.display = 'none'; }
+
     var overlay = document.getElementById('outro-overlay');
     var bgA = document.getElementById('outro-bg-a');
     var bgB = document.getElementById('outro-bg-b');
-    var line1 = document.getElementById('outro-line1');
-    var line2 = document.getElementById('outro-line2');
-    var line3 = document.getElementById('outro-line3');
     var outroIframe = document.getElementById('outro-iframe');
     if (!overlay) return;
 
-    // 彩铅三张背景图
+    // 彩铅背景图
     var bgImgs = ['img/1.jpg', 'img/sketch-flowers.jpg', 'img/colored-flowers.jpg'];
     bgImgs.forEach(function(s) { var i = new Image(); i.src = s; });
 
-    // 提前预加载花瓣雨到 iframe
+    // 预加载花瓣雨
     if (outroIframe) {
       outroIframe.src = 'https://h5.news.qq.com/qqfile/redian/petals_fall.html';
     }
 
-    // 线稿揭示的多个笔触落点（模拟画家从多个位置同时勾线）
     var sketchPoints = [
-      { x: 30, y: 25, delay: 0,   speed: 0.75, rx: 1.2, ry: 1.0 },  // 左上花丛
-      { x: 70, y: 15, delay: 0.1, speed: 0.7,  rx: 1.0, ry: 1.3 },  // 右上天空
-      { x: 50, y: 55, delay: 0.15, speed: 0.65, rx: 1.3, ry: 1.1 },  // 中间主花
-      { x: 20, y: 75, delay: 0.2, speed: 0.7,  rx: 1.1, ry: 1.2 },  // 左下
-      { x: 80, y: 70, delay: 0.1, speed: 0.75, rx: 1.0, ry: 1.0 },  // 右下
-      { x: 50, y: 90, delay: 0.25, speed: 0.8,  rx: 1.4, ry: 0.8 },  // 底部
+      { x: 30, y: 25, delay: 0,   speed: 0.75, rx: 1.2, ry: 1.0 },
+      { x: 70, y: 15, delay: 0.1, speed: 0.7,  rx: 1.0, ry: 1.3 },
+      { x: 50, y: 55, delay: 0.15, speed: 0.65, rx: 1.3, ry: 1.1 },
+      { x: 20, y: 75, delay: 0.2, speed: 0.7,  rx: 1.1, ry: 1.2 },
+      { x: 80, y: 70, delay: 0.1, speed: 0.75, rx: 1.0, ry: 1.0 },
+      { x: 50, y: 90, delay: 0.25, speed: 0.8,  rx: 1.4, ry: 0.8 },
     ];
 
-    // 着色的多个笔触落点（模拟从花心开始上色，向外蔓延）
     var colorPoints = [
-      { x: 50, y: 50, delay: 0,   speed: 0.6, rx: 1.1, ry: 1.1 },  // 中心花朵先着色
-      { x: 25, y: 30, delay: 0.2, speed: 0.65, rx: 1.3, ry: 1.0 },  // 左上
-      { x: 75, y: 35, delay: 0.15, speed: 0.7,  rx: 1.0, ry: 1.2 },  // 右上
-      { x: 35, y: 75, delay: 0.25, speed: 0.7,  rx: 1.2, ry: 1.0 },  // 左下
-      { x: 70, y: 80, delay: 0.2, speed: 0.75, rx: 1.0, ry: 1.3 },  // 右下
-      { x: 50, y: 10, delay: 0.3, speed: 0.8,  rx: 1.5, ry: 0.7 },  // 顶部天空
+      { x: 50, y: 50, delay: 0,   speed: 0.6, rx: 1.1, ry: 1.1 },
+      { x: 25, y: 30, delay: 0.2, speed: 0.65, rx: 1.3, ry: 1.0 },
+      { x: 75, y: 35, delay: 0.15, speed: 0.7,  rx: 1.0, ry: 1.2 },
+      { x: 35, y: 75, delay: 0.25, speed: 0.7,  rx: 1.2, ry: 1.0 },
+      { x: 70, y: 80, delay: 0.2, speed: 0.75, rx: 1.0, ry: 1.3 },
+      { x: 50, y: 10, delay: 0.3, speed: 0.8,  rx: 1.5, ry: 0.7 },
     ];
 
-    // === 阶段0（0s）：显示 overlay + 暖底色 ===
+    // 阶段0：显示 overlay + 暖底色
     bgA.src = bgImgs[0];
     bgA.style.opacity = '1';
     bgB.style.opacity = '0';
@@ -726,7 +836,7 @@
     overlay.offsetHeight;
     overlay.classList.add('visible');
 
-    // === 阶段1（0.5s）：多点笔触揭示线稿（1.2s 动画）===
+    // 阶段1（0.5s）：线稿揭示
     setTimeout(function() {
       bgB.src = bgImgs[1];
       bgB.style.opacity = '1';
@@ -734,45 +844,31 @@
       animateBrushSpread(bgB, 1.2, sketchPoints);
     }, 500);
 
-    // === 阶段2（1.7s）：第一句 + 多点着色蔓延 ===
+    // 阶段2（1.7s）：着色蔓延
     setTimeout(function() {
-      line1.classList.add('show');
       var colorLayer = document.createElement('img');
       colorLayer.className = 'outro-bg color-spread';
       colorLayer.src = bgImgs[2];
       colorLayer.alt = '';
-      overlay.insertBefore(colorLayer, overlay.querySelector('.outro-text-layer'));
+      overlay.appendChild(colorLayer);
       animateBrushSpread(colorLayer, 1.5, colorPoints);
     }, 1700);
 
-    // === 阶段3（3.2s）：第二句 ===
+    // 阶段3（3.5s）：消散到花瓣雨
     setTimeout(function() {
-      line2.classList.add('show');
-    }, 3200);
-
-    // === 阶段4（4.2s）：第三句 ===
-    setTimeout(function() {
-      line3.classList.add('show');
-    }, 4200);
-
-    // === 阶段5（5.0s）：文案淡出 + 同时消散到花瓣雨 ===
-    setTimeout(function() {
-      line1.classList.add('fade-out');
-      line2.classList.add('fade-out');
-      line3.classList.add('fade-out');
       if (outroIframe) {
         outroIframe.classList.add('ready');
       }
       overlay.classList.add('dissolve');
-    }, 5000);
+    }, 3500);
 
-    // === 阶段6（6.5s）：overlay 完全消失，花瓣雨可交互 ===
+    // 阶段4（5s）：overlay 完全消失
     setTimeout(function() {
       overlay.style.display = 'none';
       if (outroIframe) {
         outroIframe.classList.add('interactive');
       }
-    }, 6500);
+    }, 5000);
   }
 
   // ==========================================

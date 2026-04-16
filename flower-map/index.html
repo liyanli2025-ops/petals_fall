@@ -14,17 +14,22 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- 开屏动画 -->
+  <!-- 开屏页（花瓣雨风格） -->
   <div id="intro" class="intro">
-    <div class="intro-bg" style="background-image: url(img/1.jpg);"></div>
+    <!-- 视频背景 -->
+    <video class="intro-video" autoplay muted loop playsinline webkit-playsinline x5-video-player-type="h5-page">
+      <source src="https://mat1.gtimg.com/qqcdn/redian/flower_map/img/start_pencil_new_compressed.mp4" type="video/mp4">
+    </video>
+    <!-- 视频无法播放时的静态兜底 -->
+    <div class="intro-bg" style="background-image: url(img/colored-flowers.jpg);"></div>
+    <!-- 腾讯新闻Logo -->
+    <img class="intro-txnews-logo" src="https://mat1.gtimg.com/qqcdn/redian/petals_fall/txnews_logo.png" alt="腾讯新闻">
+    <!-- 内容层 -->
     <div class="intro-content">
       <img class="intro-logo" src="https://mat1.gtimg.com/qqcdn/redian/petals_fall/logo1.png" alt="局部地区有花雨">
-      <div class="intro-arrow">
-        <span>向上滑动开始旅程</span>
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 5v14M5 12l7 7 7-7"/>
-        </svg>
-      </div>
+      <p class="intro-subtitle">五一花开地图</p>
+      <p class="intro-desc">从北到南，八城繁花已备好<br>一键查看你的专属赏花路线</p>
+      <button id="btn-enter" class="btn-enter">查看花开地图</button>
     </div>
   </div>
 
@@ -46,11 +51,11 @@
     <!-- 花瓣轨迹容器（沿路径散布的花瓣） -->
     <div id="petal-trail" class="petal-trail"></div>
 
-    <!-- 城市节点 -->
+    <!-- 城市节点（从北到南） -->
     <div id="cities" class="cities">
 
-      <!-- 城市1: 哈尔滨 - 丁香 -->
-      <div class="city-node" data-city="harbin" data-index="0" style="top: 50px;">
+      <!-- 城市1: 哈尔滨 - 丁香花 -->
+      <div class="city-node" data-city="harbin" data-index="0" data-spots="群力丁香公园「中国丁香第一园」|兆麟公园百年丁香|太阳岛紫雾飘香|哈工大校园" style="top: 50px;">
         <div class="city-aura" style="--aura-color: rgba(201,160,220,0.12);"></div>
         <div class="flower-container">
           <div class="bloom-glow" style="--glow-color: rgba(201,160,220,0.4);"></div>
@@ -58,45 +63,45 @@
           <img class="flower-bloom-img" src="img/bloom-lilac.png" alt="丁香绽放">
           <div class="bloom-particles"></div>
         </div>
-        <div class="city-card">
+        <div class="city-card city-card-btn">
           <div class="landmark-container">
             <img class="landmark-img" src="img/landmark-harbin.png" alt="圣索菲亚大教堂">
           </div>
           <div class="city-text">
-            <div class="city-dot"></div>
+            <div class="city-dot"><div class="city-dot-inner"></div></div>
             <span class="city-name">哈尔滨</span>
-            <span class="city-flower-name">丁香</span>
-            <p class="info-text">紫色丁香满城飘香<br>冰城最温柔的春天</p>
+            <span class="city-flower-name">丁香花</span>
+            <p class="info-text">丁香空结雨中愁<br>回首江南烟雨楼</p>
           </div>
         </div>
         <div class="city-divider"><svg viewBox="0 0 120 20"><path d="M0,10 Q30,0 60,10 T120,10" fill="none" stroke="#c4a882" stroke-width="1" opacity="0.3"/><circle cx="60" cy="10" r="2" fill="#c4a882" opacity="0.4"/></svg></div>
       </div>
 
-      <!-- 城市2: 北京 - 玉兰 -->
-      <div class="city-node" data-city="beijing" data-index="1" style="top: 600px;">
-        <div class="city-aura" style="--aura-color: rgba(248,223,232,0.15);"></div>
+      <!-- 城市2: 北京 - 芍药花 -->
+      <div class="city-node" data-city="beijing" data-index="1" data-spots="圆明园含经堂遗址千株芍药倚古墙|景山公园芍药园|北海公园皇家园林" style="top: 600px;">
+        <div class="city-aura" style="--aura-color: rgba(232,168,188,0.12);"></div>
         <div class="flower-container">
-          <div class="bloom-glow" style="--glow-color: rgba(255,245,249,0.5);"></div>
-          <img class="flower-bud-img" src="img/bud-magnolia.png" alt="玉兰花苞">
-          <img class="flower-bloom-img" src="img/bloom-magnolia.png" alt="玉兰绽放">
+          <div class="bloom-glow" style="--glow-color: rgba(232,168,188,0.4);"></div>
+          <img class="flower-bud-img" src="img/bud-shaoyao.png" alt="芍药花苞">
+          <img class="flower-bloom-img" src="img/bloom-shaoyao.png" alt="芍药绽放">
           <div class="bloom-particles"></div>
         </div>
-        <div class="city-card">
+        <div class="city-card city-card-btn">
           <div class="landmark-container">
             <img class="landmark-img" src="img/landmark-beijing.png" alt="天坛">
           </div>
           <div class="city-text">
-            <div class="city-dot"></div>
+            <div class="city-dot"><div class="city-dot-inner"></div></div>
             <span class="city-name">北京</span>
-            <span class="city-flower-name">玉兰</span>
-            <p class="info-text">故宫红墙映白玉兰<br>京城春色如画卷</p>
+            <span class="city-flower-name">芍药花</span>
+            <p class="info-text">芍药承春宠<br>何曾羡牡丹</p>
           </div>
         </div>
         <div class="city-divider"><svg viewBox="0 0 120 20"><path d="M0,10 Q30,0 60,10 T120,10" fill="none" stroke="#c4a882" stroke-width="1" opacity="0.3"/><circle cx="60" cy="10" r="2" fill="#c4a882" opacity="0.4"/></svg></div>
       </div>
 
-      <!-- 城市3: 洛阳 - 牡丹 -->
-      <div class="city-node" data-city="luoyang" data-index="2" style="top: 1050px;">
+      <!-- 城市3: 洛阳 - 牡丹花 -->
+      <div class="city-node" data-city="luoyang" data-index="2" data-spots="国际牡丹园晚花品种最丰|国家牡丹园赏皇家气韵|神州牡丹园观千姿百态" style="top: 1050px;">
         <div class="city-aura" style="--aura-color: rgba(242,160,176,0.12);"></div>
         <div class="flower-container">
           <div class="bloom-glow" style="--glow-color: rgba(242,160,176,0.4);"></div>
@@ -104,68 +109,45 @@
           <img class="flower-bloom-img" src="img/bloom-peony.png" alt="牡丹绽放">
           <div class="bloom-particles"></div>
         </div>
-        <div class="city-card">
+        <div class="city-card city-card-btn">
           <div class="landmark-container">
             <img class="landmark-img" src="img/landmark-luoyang.png" alt="龙门石窟">
           </div>
           <div class="city-text">
-            <div class="city-dot"></div>
+            <div class="city-dot"><div class="city-dot-inner"></div></div>
             <span class="city-name">洛阳</span>
-            <span class="city-flower-name">牡丹</span>
+            <span class="city-flower-name">牡丹花</span>
             <p class="info-text">唯有牡丹真国色<br>花开时节动京城</p>
           </div>
         </div>
         <div class="city-divider"><svg viewBox="0 0 120 20"><path d="M0,10 Q30,0 60,10 T120,10" fill="none" stroke="#c4a882" stroke-width="1" opacity="0.3"/><circle cx="60" cy="10" r="2" fill="#c4a882" opacity="0.4"/></svg></div>
       </div>
 
-      <!-- 城市4: 武汉 - 樱花 -->
-      <div class="city-node" data-city="wuhan" data-index="3" style="top: 1500px;">
-        <div class="city-aura" style="--aura-color: rgba(253,217,228,0.15);"></div>
+      <!-- 城市4: 武汉 - 蔷薇花 -->
+      <div class="city-node" data-city="wuhan" data-index="3" data-spots="晴川桥下160万株花墙粉色瀑布|和平公园|武汉植物园" style="top: 1500px;">
+        <div class="city-aura" style="--aura-color: rgba(245,180,200,0.12);"></div>
         <div class="flower-container">
-          <div class="bloom-glow" style="--glow-color: rgba(253,217,228,0.5);"></div>
-          <img class="flower-bud-img" src="img/bud-cherry.png" alt="樱花花苞">
-          <img class="flower-bloom-img" src="img/bloom-cherry.png" alt="樱花绽放">
+          <div class="bloom-glow" style="--glow-color: rgba(245,180,200,0.4);"></div>
+          <img class="flower-bud-img" src="img/bud-rosa.png" alt="蔷薇花苞">
+          <img class="flower-bloom-img" src="img/bloom-rosa.png" alt="蔷薇绽放">
           <div class="bloom-particles"></div>
         </div>
-        <div class="city-card">
+        <div class="city-card city-card-btn">
           <div class="landmark-container">
             <img class="landmark-img" src="img/landmark-wuhan.png" alt="黄鹤楼">
           </div>
           <div class="city-text">
-            <div class="city-dot"></div>
+            <div class="city-dot"><div class="city-dot-inner"></div></div>
             <span class="city-name">武汉</span>
-            <span class="city-flower-name">樱花</span>
-            <p class="info-text">武大樱花如云似雪<br>珞珈山下春意浓</p>
+            <span class="city-flower-name">蔷薇花</span>
+            <p class="info-text">不摇香已乱<br>无风花自飞</p>
           </div>
         </div>
         <div class="city-divider"><svg viewBox="0 0 120 20"><path d="M0,10 Q30,0 60,10 T120,10" fill="none" stroke="#c4a882" stroke-width="1" opacity="0.3"/><circle cx="60" cy="10" r="2" fill="#c4a882" opacity="0.4"/></svg></div>
       </div>
 
-      <!-- 城市5: 婺源 - 油菜花 -->
-      <div class="city-node" data-city="wuyuan" data-index="4" style="top: 1950px;">
-        <div class="city-aura" style="--aura-color: rgba(255,215,0,0.10);"></div>
-        <div class="flower-container">
-          <div class="bloom-glow" style="--glow-color: rgba(255,215,0,0.35);"></div>
-          <img class="flower-bud-img" src="img/bud-rapeseed.png" alt="油菜花苞">
-          <img class="flower-bloom-img" src="img/bloom-rapeseed.png" alt="油菜花绽放">
-          <div class="bloom-particles"></div>
-        </div>
-        <div class="city-card">
-          <div class="landmark-container">
-            <img class="landmark-img" src="img/landmark-wuyuan.png" alt="徽派民居">
-          </div>
-          <div class="city-text">
-            <div class="city-dot"></div>
-            <span class="city-name">婺源</span>
-            <span class="city-flower-name">油菜花</span>
-            <p class="info-text">梯田金黄铺满山间<br>最美乡村入画来</p>
-          </div>
-        </div>
-        <div class="city-divider"><svg viewBox="0 0 120 20"><path d="M0,10 Q30,0 60,10 T120,10" fill="none" stroke="#c4a882" stroke-width="1" opacity="0.3"/><circle cx="60" cy="10" r="2" fill="#c4a882" opacity="0.4"/></svg></div>
-      </div>
-
-      <!-- 城市6: 长沙 - 杜鹃 -->
-      <div class="city-node" data-city="changsha" data-index="5" style="top: 2400px;">
+      <!-- 城市5: 长沙 - 杜鹃花 -->
+      <div class="city-node" data-city="changsha" data-index="4" data-spots="浏阳大围山万亩杜鹃海|高山云海相映成画|湖南省植物园珍稀品种荟萃" style="top: 1950px;">
         <div class="city-aura" style="--aura-color: rgba(240,104,136,0.10);"></div>
         <div class="flower-container">
           <div class="bloom-glow" style="--glow-color: rgba(240,104,136,0.35);"></div>
@@ -173,45 +155,68 @@
           <img class="flower-bloom-img" src="img/bloom-azalea.png" alt="杜鹃绽放">
           <div class="bloom-particles"></div>
         </div>
-        <div class="city-card">
+        <div class="city-card city-card-btn">
           <div class="landmark-container">
             <img class="landmark-img" src="img/landmark-changsha.png" alt="岳麓书院">
           </div>
           <div class="city-text">
-            <div class="city-dot"></div>
+            <div class="city-dot"><div class="city-dot-inner"></div></div>
             <span class="city-name">长沙</span>
-            <span class="city-flower-name">杜鹃</span>
-            <p class="info-text">岳麓山上映山红<br>万山红遍层林染</p>
+            <span class="city-flower-name">杜鹃花</span>
+            <p class="info-text">闲折二枝持在手<br>细看不似人间有</p>
           </div>
         </div>
         <div class="city-divider"><svg viewBox="0 0 120 20"><path d="M0,10 Q30,0 60,10 T120,10" fill="none" stroke="#c4a882" stroke-width="1" opacity="0.3"/><circle cx="60" cy="10" r="2" fill="#c4a882" opacity="0.4"/></svg></div>
       </div>
 
-      <!-- 城市7: 广州 - 木棉 -->
-      <div class="city-node" data-city="guangzhou" data-index="6" style="top: 2850px;">
-        <div class="city-aura" style="--aura-color: rgba(240,96,48,0.10);"></div>
+      <!-- 城市6: 婺源 - 紫藤花 -->
+      <div class="city-node" data-city="wuyuan" data-index="5" data-spots="篁岭鲜花小镇紫瀑垂帘映徽派粉墙|思溪延村古巷幽径藤萝绕" style="top: 2400px;">
+        <div class="city-aura" style="--aura-color: rgba(160,120,200,0.10);"></div>
         <div class="flower-container">
-          <div class="bloom-glow" style="--glow-color: rgba(240,96,48,0.35);"></div>
-          <img class="flower-bud-img" src="img/bud-kapok.png" alt="木棉花苞">
-          <img class="flower-bloom-img" src="img/bloom-kapok.png" alt="木棉绽放">
+          <div class="bloom-glow" style="--glow-color: rgba(160,120,200,0.35);"></div>
+          <img class="flower-bud-img" src="img/bud-wisteria.png" alt="紫藤花苞">
+          <img class="flower-bloom-img" src="img/bloom-wisteria.png" alt="紫藤绽放">
           <div class="bloom-particles"></div>
         </div>
-        <div class="city-card">
+        <div class="city-card city-card-btn">
+          <div class="landmark-container">
+            <img class="landmark-img" src="img/landmark-wuyuan.png" alt="徽派民居">
+          </div>
+          <div class="city-text">
+            <div class="city-dot"><div class="city-dot-inner"></div></div>
+            <span class="city-name">婺源</span>
+            <span class="city-flower-name">紫藤花</span>
+            <p class="info-text">紫藤挂云木<br>花蔓宜阳春</p>
+          </div>
+        </div>
+        <div class="city-divider"><svg viewBox="0 0 120 20"><path d="M0,10 Q30,0 60,10 T120,10" fill="none" stroke="#c4a882" stroke-width="1" opacity="0.3"/><circle cx="60" cy="10" r="2" fill="#c4a882" opacity="0.4"/></svg></div>
+      </div>
+
+      <!-- 城市7: 广州 - 凤凰木 -->
+      <div class="city-node" data-city="guangzhou" data-index="6" data-spots="海印桥脚网红火焰打卡点|天河公园蓝花楹红蓝同框|麓湖公园湖畔映霞" style="top: 2850px;">
+        <div class="city-aura" style="--aura-color: rgba(240,80,30,0.10);"></div>
+        <div class="flower-container">
+          <div class="bloom-glow" style="--glow-color: rgba(240,80,30,0.35);"></div>
+          <img class="flower-bud-img" src="img/bud-delonix.png" alt="凤凰木花苞">
+          <img class="flower-bloom-img" src="img/bloom-delonix.png" alt="凤凰木绽放">
+          <div class="bloom-particles"></div>
+        </div>
+        <div class="city-card city-card-btn">
           <div class="landmark-container">
             <img class="landmark-img" src="img/landmark-guangzhou.png" alt="广州塔">
           </div>
           <div class="city-text">
-            <div class="city-dot"></div>
+            <div class="city-dot"><div class="city-dot-inner"></div></div>
             <span class="city-name">广州</span>
-            <span class="city-flower-name">木棉</span>
-            <p class="info-text">英雄花开红似火<br>南国春来早一步</p>
+            <span class="city-flower-name">凤凰木</span>
+            <p class="info-text">凤凰花发火烧天<br>羊城五月夏如年</p>
           </div>
         </div>
         <div class="city-divider"><svg viewBox="0 0 120 20"><path d="M0,10 Q30,0 60,10 T120,10" fill="none" stroke="#c4a882" stroke-width="1" opacity="0.3"/><circle cx="60" cy="10" r="2" fill="#c4a882" opacity="0.4"/></svg></div>
       </div>
 
       <!-- 城市8: 三亚 - 三角梅 -->
-      <div class="city-node" data-city="sanya" data-index="7" style="top: 3300px;">
+      <div class="city-node" data-city="sanya" data-index="7" data-spots="三角梅科博园300+品种博览|椰梦长廊滨海花径|鹿回头公园四季花开不败" style="top: 3300px;">
         <div class="city-aura" style="--aura-color: rgba(240,64,160,0.10);"></div>
         <div class="flower-container">
           <div class="bloom-glow" style="--glow-color: rgba(240,64,160,0.35);"></div>
@@ -219,15 +224,15 @@
           <img class="flower-bloom-img" src="img/bloom-bougainvillea.png" alt="三角梅绽放">
           <div class="bloom-particles"></div>
         </div>
-        <div class="city-card">
+        <div class="city-card city-card-btn">
           <div class="landmark-container">
             <img class="landmark-img" src="img/landmark-sanya.png" alt="椰林沙滩">
           </div>
           <div class="city-text">
-            <div class="city-dot"></div>
+            <div class="city-dot"><div class="city-dot-inner"></div></div>
             <span class="city-name">三亚</span>
             <span class="city-flower-name">三角梅</span>
-            <p class="info-text">三角梅开满天涯<br>热带花海四季春</p>
+            <p class="info-text">南国有佳卉<br>烈焰照碧空</p>
           </div>
         </div>
       </div>
@@ -238,17 +243,29 @@
 
     <!-- 进度指示 -->
     <div id="progress-bar" class="progress-bar">
-      <div class="progress-track">
-        <div id="progress-fill" class="progress-fill"></div>
+      <span class="progress-label progress-label-n">北</span>
+      <div class="progress-wrapper">
+        <div class="progress-track">
+          <div id="progress-fill" class="progress-fill"></div>
+        </div>
+        <div id="progress-dots" class="progress-dots"></div>
       </div>
-      <div id="progress-dots" class="progress-dots"></div>
+      <span class="progress-label progress-label-s">南</span>
     </div>
 
-    <!-- 方向指示（北→南） -->
-    <div class="direction-indicator">
-      <span class="dir-n">北</span>
-      <div class="dir-line"></div>
-      <span class="dir-s">南</span>
+    <!-- 底部花瓣雨引导区 -->
+    <div id="petal-rain-guide" class="petal-rain-guide" style="display:none;">
+      <div class="guide-content">
+        <div class="guide-divider"></div>
+        <p class="guide-text">就算无法亲临花海<br>我们也为你备好了一场专属花雨</p>
+        <button id="btn-petal-rain" class="btn-petal-rain">开启花雨</button>
+        <div class="guide-arrow">
+          <span>或继续下滑</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 5v14M5 12l7 7 7-7"/>
+          </svg>
+        </div>
+      </div>
     </div>
 
   </div>
@@ -256,16 +273,24 @@
   <!-- 花瓣雨 iframe（底层预加载，用于渐变过渡） -->
   <iframe id="outro-iframe" class="outro-iframe" src="" frameborder="0" allowtransparency="true"></iframe>
 
-  <!-- 尾部过渡：「不摇树的花雨」 -->
+  <!-- 尾部过渡（无文案，纯彩铅渐变到花瓣雨） -->
   <div id="outro-overlay" class="outro-overlay" style="display:none;">
-    <!-- 彩铅背景 A/B crossfade -->
     <img id="outro-bg-a" class="outro-bg outro-bg-front" src="" alt="">
     <img id="outro-bg-b" class="outro-bg outro-bg-back" src="" alt="">
-    <!-- 文案层：三句同屏 -->
-    <div class="outro-text-layer">
-      <div id="outro-line1" class="outro-line outro-line-1">赏花不摇树</div>
-      <div id="outro-line2" class="outro-line outro-line-2">花雨 说下就下</div>
-      <div id="outro-line3" class="outro-line outro-line-3">给地球一场不打扰的浪漫</div>
+  </div>
+
+  <!-- 赏花地浮层 -->
+  <div id="spot-overlay" class="spot-overlay" style="display:none;">
+    <div class="spot-card">
+      <div class="spot-watermark"></div>
+      <button class="spot-close">&times;</button>
+      <div class="spot-header">
+        <span class="spot-city-name"></span>
+        <span class="spot-flower-name"></span>
+      </div>
+      <div class="spot-title">最佳赏花地</div>
+      <ul class="spot-list"></ul>
+      <p class="spot-tip">📅 五一假期5.1-5.5 · 建议提前预约</p>
     </div>
   </div>
 
