@@ -54,11 +54,81 @@
     cacheElements();
     buildRoute();
     createProgressDots();
+    createStaticPetals();
     setupIntersectionObserver();
     setupEventListeners();
     setupIntroScroll();
     startParticleLoop();
     addDecoFlowers();
+    setupIntroVideo();
+  }
+
+  // ==========================================
+  // 开屏视频自动播放（微信兼容）
+  // ==========================================
+  function setupIntroVideo() {
+    var video = document.querySelector('.intro-video');
+    var fallback = document.querySelector('.intro-bg');
+    if (!video) return;
+
+    var played = false;
+    function onPlaying() {
+      if (played) return;
+      played = true;
+      if (fallback) fallback.style.display = 'none';
+    }
+
+    function tryPlay() {
+      if (!video || !video.paused) return;
+      video.muted = true;
+      var p = video.play();
+      if (p && p.then) p.then(onPlaying).catch(function(){});
+    }
+
+    video.addEventListener('playing', onPlaying);
+    video.addEventListener('timeupdate', function onTU() {
+      if (video.currentTime > 0.05) { onPlaying(); video.removeEventListener('timeupdate', onTU); }
+    });
+
+    // 立即尝试
+    tryPlay();
+    video.addEventListener('loadedmetadata', tryPlay);
+    video.addEventListener('canplay', tryPlay);
+
+    // 微信专用：WeixinJSBridge
+    var isWx = /MicroMessenger/i.test(navigator.userAgent);
+    if (isWx) {
+      var wxAutoPlay = function() {
+        if (window.WeixinJSBridge) {
+          window.WeixinJSBridge.invoke('getNetworkType', {}, function() { tryPlay(); });
+        }
+      };
+      if (window.WeixinJSBridge) { wxAutoPlay(); }
+      else { document.addEventListener('WeixinJSBridgeReady', wxAutoPlay, false); }
+    }
+
+    // 页面加载完 + 定时重试
+    window.addEventListener('load', tryPlay);
+    var retryCount = 0;
+    var retryTimer = setInterval(function() {
+      retryCount++;
+      tryPlay();
+      if (!video.paused || retryCount >= 6) clearInterval(retryTimer);
+    }, 500);
+
+    // 触摸兜底
+    document.addEventListener('touchstart', function ts() {
+      tryPlay();
+      document.removeEventListener('touchstart', ts);
+    }, { once: true, passive: true });
+
+    // 5秒超时切静态图
+    setTimeout(function() {
+      if (!played && video) {
+        video.style.display = 'none';
+        if (fallback) fallback.style.display = '';
+      }
+    }, 5000);
   }
 
   // ==========================================
@@ -322,9 +392,21 @@
     if (state.particleCtx) state.particleCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
+  var _particleAnimId = null;
+
   function startParticleLoop() {
+    // 不立即启动，等有粒子时由 _ensureParticleLoop 启动
+  }
+
+  function _ensureParticleLoop() {
+    if (_particleAnimId) return;
     (function loop() {
-      requestAnimationFrame(loop);
+      var total = state.particleLayers[0].length + state.particleLayers[1].length + state.particleLayers[2].length;
+      if (total === 0) {
+        _particleAnimId = null;
+        return;
+      }
+      _particleAnimId = requestAnimationFrame(loop);
       updateParticles();
       drawParticles();
     })();
@@ -338,8 +420,12 @@
       var arr = layers[li];
       for (var i = arr.length - 1; i >= 0; i--) {
         var p = arr[i];
+
         p.life -= 0.0018;
-        if (p.life <= 0) { arr.splice(i, 1); continue; }
+        if (p.life <= 0) {
+          arr.splice(i, 1);
+          continue;
+        }
 
         var drag = li === 0 ? 0.96 : (li === 1 ? 0.975 : 0.965);
         p.vx *= drag;
@@ -365,7 +451,7 @@
     var vh = window.innerHeight;
     var viewTop = scrollY - 100;
     var viewBottom = scrollY + vh + 100;
-    var canvasW = state.particleCanvas.width / (Math.min(window.devicePixelRatio || 1, 2));
+    var canvasW = state.particleCanvas.width;
 
     // 只清除视口对应的 Canvas 区域（避免清除整个 3900px 高的画布）
     ctx.clearRect(0, viewTop, canvasW, viewBottom - viewTop);
@@ -467,6 +553,7 @@
             });
           }
         }
+        _ensureParticleLoop();
       }, delay);
     }
 
@@ -501,6 +588,65 @@
         '--tr:' + ((Math.random() - 0.5) * 360) + 'deg;' +
         'animation-delay:' + (Math.random() * 0.3) + 's;';
       c.appendChild(p);
+    }
+  }
+
+  // ==========================================
+  // 预渲染静态背景花瓣（绽放后直接显示，零运行时开销）
+  // ==========================================
+  function createStaticPetals() {
+    var container = document.getElementById('petal-ghosts');
+    if (!container) return;
+
+    // 每个城市花朵的 top 值（与 HTML style 一致）
+    var cityTops = [50, 600, 1050, 1500, 1950, 2400, 2850, 3300];
+    // 花朵中心 X 的大致百分比（左右交错）
+    var cityXPercents = [0.30, 0.65, 0.35, 0.68, 0.28, 0.70, 0.32, 0.66];
+    // 花朵容器高度 130px，花朵中心大致在 top + 65
+    var flowerCenterY = 65;
+
+    CITIES.forEach(function(city, idx) {
+      var cx = cityXPercents[idx]; // 百分比
+      var cy = cityTops[idx] + flowerCenterY;
+      var petalCount = (idx === 6) ? 5 : 7; // 凤凰木花瓣少一些
+
+      for (var i = 0; i < petalCount; i++) {
+        var el = document.createElement('img');
+        el.src = city.petalImg;
+        el.className = 'static-petal';
+        el.setAttribute('data-city-index', idx);
+
+        // 花瓣散布在花朵周围，偏下方（模拟飘落后留存）
+        var angle = (Math.PI * 2 / petalCount) * i + (Math.random() - 0.5) * 0.8;
+        var dist = 40 + Math.random() * 60;
+        var offsetX = Math.cos(angle) * dist;
+        var offsetY = Math.sin(angle) * dist + 20 + Math.random() * 30; // 偏下
+        var size = 14 + Math.random() * 18;
+        var rotation = Math.random() * 360;
+        var opacity = 0.12 + Math.random() * 0.12;
+
+        // 用百分比 X + 像素偏移（保证响应式）
+        el.style.cssText =
+          'left:calc(' + (cx * 100) + '% + ' + offsetX + 'px);' +
+          'top:' + (cy + offsetY) + 'px;' +
+          'width:' + size + 'px;height:' + size + 'px;' +
+          'opacity:0;' +
+          'transform:rotate(' + rotation + 'deg);' +
+          'transition:opacity 1.5s ease ' + (0.5 + Math.random() * 1.5) + 's;';
+
+        container.appendChild(el);
+      }
+    });
+  }
+
+  // 显示指定城市的静态花瓣（绽放时调用）
+  function showStaticPetals(cityIndex) {
+    var petals = document.querySelectorAll('.static-petal[data-city-index="' + cityIndex + '"]');
+    for (var i = 0; i < petals.length; i++) {
+      petals[i].style.opacity = petals[i].getAttribute('data-opacity') || '';
+      // 直接设置最终 opacity（transition 在 CSS 中已定义）
+      var finalOpacity = 0.12 + Math.random() * 0.12;
+      petals[i].style.opacity = finalOpacity;
     }
   }
 
@@ -565,14 +711,42 @@
   // ==========================================
   // 触发绽放
   // ==========================================
+  var lastBloomTime = 0;
+
   function triggerBloom(node, index) {
     if (state.bloomedCities[index]) return;
-    // 开屏还在显示时不触发任何绽放
     if (state.introVisible) return;
+
+    // 严格顺序：前一个城市必须已绽放，当前才能绽放（不重试，等下次 observer 触发）
+    if (index > 0 && !state.bloomedCities[index - 1]) {
+      return;
+    }
+
+    // 必须在视口内才绽放（防止 observer 历史回调导致不在视口的城市绽放）
+    var rect = node.getBoundingClientRect();
+    var vh = window.innerHeight;
+    if (rect.top > vh || rect.bottom < 0) return;
+
+    // 距上一次绽放不足 1s，延迟触发（避免同屏城市同时绽放）
+    var now = Date.now();
+    var elapsed = now - lastBloomTime;
+    if (elapsed < 1000 && lastBloomTime > 0) {
+      setTimeout(function() { triggerBloom(node, index); }, 1000 - elapsed);
+      return;
+    }
+
     state.bloomedCities[index] = true;
+    lastBloomTime = Date.now();
 
     node.classList.add('bloomed');
     createBloomParticles(node, index);
+    showStaticPetals(index);
+
+    // 绽放粒子动画结束后清理 DOM，减少页面合成层数量
+    setTimeout(function() {
+      var particles = node.querySelector('.bloom-particles');
+      if (particles) particles.innerHTML = '';
+    }, 1500);
 
     setTimeout(function() { emitParticles(node, index); }, 250);
     setTimeout(function() { emitParticles(node, index); }, 600);
@@ -612,7 +786,43 @@
       bloomImgMap[c.id] = c.petalImg.replace('petal-', 'bloom-');
     });
 
-    // 赏花地浮层：点击 city-card 弹出
+    // 八城花事详情（来自 detail.md）
+    var CITY_DETAILS = [
+      // 0: 哈尔滨·丁香
+      '<p>十九世纪末，中东铁路的汽笛声穿越西伯利亚的冻土，俄侨们随身携带的，除了伏特加与套娃，还有一捧丁香的种子。彼时他们或许未曾想到，这株来自异乡的灌木，会在百余年后成为一座城市的魂魄——1988年，丁香被正式确定为哈尔滨市花。</p>' +
+      '<p>五月的哈尔滨，整座城浸在淡紫色的雾气里。群力丁香公园占地43万平方米，汇集32种丁香品种，被冠以"中国丁香第一园"之名。清晨七点，晨雾未散，园中少有游人，唯有花香在空气中低语。而若想寻一份更私密的浪漫，兆麟公园内那株树龄逾百的暴马丁香值得专程造访。本地人更偏爱哈工大校园，在学术的肃穆与花香的柔软之间，找到某种奇妙的平衡。</p>' +
+      '<p class="spot-quote">李商隐写"芭蕉不展丁香结，同向春风各自愁"，将丁香与愁绪永久地绑定在一起。戴望舒在《雨巷》里更进一步，让"一个丁香一样的，结着愁怨的姑娘"成为现代诗最动人的意象之一。</p>',
+      // 1: 北京·芍药
+      '<p>在圆明园含经堂遗址，芍药的盛放像是一场关于时间的隐喻。这片两万余平方米的观赏区，曾见证康雍乾三代帝王的赏花佳话。如今断壁残垣犹在，芍药年年如约绽放，娇艳与沧桑在同一个画面里并置，构成一种难以言说的张力。</p>' +
+      '<p>《红楼梦》第六十二回，"憨湘云醉眠芍药裀"是全书最美的画面之一——湘云醉卧青石板凳，芍药花瓣落了一身，蜂蝶围绕，香梦沉酣。芍药在《诗经》中被称为"将离草"，是古人临别时相赠的信物，花语中藏着惜别与深情。</p>' +
+      '<p class="spot-quote">五月上旬是含经堂芍药的盛花期。建议上午九点前抵达，彼时花瓣上尚有晨露，光线柔和而不刺眼。</p>',
+      // 2: 洛阳·牡丹
+      '<p>洛阳牡丹，始于隋，盛于唐，甲天下于宋。刘禹锡那句"唯有牡丹真国色，花开时节动京城"，奠定了它在中国花卉史上不可动摇的地位。欧阳修在洛阳任职期间写下《洛阳牡丹记》，这是中国第一部牡丹专著，"姚黄魏紫"的典故由此流传。</p>' +
+      '<p>五一假期对洛阳而言，其实已是牡丹花季的尾声。但国际牡丹园以晚开品种和异域品种著称，此时仍有花可观；国家牡丹园则保留了最原始的牡丹基因，若想看到牡丹最本真的样貌，此处是必往之地。下午三点后入园是本地人的共识——光线柔和，花瓣在逆光中呈现半透明的质感。</p>' +
+      '<p class="spot-quote">唐制汉服与牡丹是天然的搭配。在隋唐城遗址植物园的亭台与月亮门前取景，长焦镜头压缩背景，便能避开人潮，留下一帧盛唐气象。</p>',
+      // 3: 武汉·蔷薇
+      '<p>晴川阁得名于崔颢的"晴川历历汉阳树"，而在它不远处的晴川桥下，藏着武汉春末最壮观的秘密。江汉大楼停车场周边，蔷薇三面环绕，据称有160万株之众，形成一道绵延百米的粉色瀑布。这是本地人私藏的赏花点——从地铁拦江路站B口出来，沿汉阳江滩向大桥方向步行，便能找到这面花墙。</p>' +
+      '<p>高骈在《山亭夏日》中写道："水晶帘动微风起，满架蔷薇一院香。"那是属于庭院的小情小景。而晴川桥下的蔷薇，以一种近乎汹涌的姿态，将古诗中的幽香放大成视觉的冲击。</p>' +
+      '<p class="spot-quote">傍晚五六点是最佳的拍摄时段，斜阳将花墙染成暖粉色，若能捕捉到蔷薇与橘红色鹦鹉洲大桥的同框画面，便是一张足以定义武汉初夏的照片。</p>',
+      // 4: 长沙·杜鹃
+      '<p>关于大围山杜鹃的起源，当地流传着一个浪漫的传说：七仙女下凡在天星湖沐浴，临别时将身上的彩带抛向山间，化作了漫山遍野的杜鹃花海。传说之外，这片10万亩的原生态野生杜鹃花海，是华中地区规模最大的观赏胜地。</p>' +
+      '<p>2026年的杜鹃花季预计从4月23日持续至5月5日，五一假期恰逢尾声，却也正是云海与花海交汇的最佳时节。七星岭观景台是拍摄全景的绝佳机位，当云雾从山谷翻涌而上，万亩杜鹃在云端若隐若现，那种壮阔足以让人忘记来时三小时山路的颠簸。</p>' +
+      '<p class="spot-quote">白居易曾赞杜鹃为"花中此物似西施"，认为芍药在它面前都显得逊色。着素色衣衫入画，是与这片红色花海相处的最佳方式。</p>',
+      // 5: 婺源·紫藤
+      '<p>篁岭是一座有着500多年历史的徽州古村，因地势陡峭，被称为"梯云人家"。五一时节，油菜花期早已结束，而天街上的紫藤长廊正进入盛花期，紫色的花穗垂落在粉墙黛瓦间，像一道道从天而降的瀑布。</p>' +
+      '<p>李白的《紫藤树》是中国最早的紫藤诗："紫藤挂云木，花蔓宜阳春。"在古代文人的意象谱系中，紫藤象征"紫气东来"，是脱俗精神的寄托。篁岭将这份古意与徽派建筑的素雅结合，构成一幅流动的水墨画。</p>' +
+      '<p class="spot-quote">沿天街漫步，可以顺道探访"一店一品"的非遗手作；思溪延村的老巷子人流更少，紫藤攀附在斑驳的门楣上，与青石板路相映成趣。</p>',
+      // 6: 广州·凤凰木
+      '<p>海印桥南侧的扶梯旁，一棵凤凰木已经矗立了四十余年。因为生长位置特殊，它的花蕊几乎触手可及，成为广州街坊口耳相传的"网红"。凤凰木的名字来自它的形态——"叶如飞凰之羽，花若丹凤之冠"，是岭南夏季最浓烈的色彩。</p>' +
+      '<p>五月中下旬是凤凰木的盛花期。站在海印桥的楼梯上，火红的花冠在珠江的背景下燃烧，这是属于广州的"花城"时刻。天河公园内还有一片蓝花楹与凤凰木比邻的区域，红蓝同框，是近年流行的打卡构图。</p>' +
+      '<p class="spot-quote">林清玄曾写道："想起凤凰花，遂想起平生未尽的志事。"下午三点至五点的逆光位是摄影的最佳时段，阳光穿透花瓣边缘，形成一圈金色的轮廓。</p>',
+      // 7: 三亚·三角梅
+      '<p>1872年，三角梅首次从南美洲被引入中国。一百余年后的1995年，它被定为三亚市花，成为这座热带滨海城市的性格注脚。在三亚，三角梅不择季节地绽放，以一种近乎执拗的热烈，诠释着坚韧与奔放。</p>' +
+      '<p>2024年建成的三角梅科博园紧邻两千年历史的崖州古城，收集了全球约500个品种，几乎占据了已知三角梅品种的半壁江山。园内48米高的"迎宾塔"是俯瞰花海的最佳视角，而若想捕捉三角梅与大海同框的画面，傍晚的椰梦长廊是不二之选。</p>' +
+      '<p class="spot-quote">西岛渔村是另一处值得探访的所在。老墙上爬满三角梅，斑驳的石灰与炽烈的花色形成对照，藏着渔村数十年的时光故事。</p>'
+    ];
+
+    // 花事详情浮层：点击 city-card 弹出
     var spotOverlay = document.getElementById('spot-overlay');
     document.querySelectorAll('.city-card-btn').forEach(function(card) {
       card.addEventListener('click', function(e) {
@@ -620,7 +830,6 @@
         var node = card.closest('.city-node');
         var idx = parseInt(node.getAttribute('data-index'), 10);
         var city = CITIES[idx];
-        var spots = (node.getAttribute('data-spots') || '').split('|');
         if (!spotOverlay || !city) return;
 
         spotOverlay.querySelector('.spot-city-name').textContent = city.name;
@@ -630,31 +839,65 @@
         if (watermark) {
           watermark.style.backgroundImage = 'url(' + (bloomImgMap[city.id] || '') + ')';
         }
-        var list = spotOverlay.querySelector('.spot-list');
-        list.innerHTML = '';
-        spots.forEach(function(s) {
-          if (!s.trim()) return;
-          var li = document.createElement('li');
-          li.textContent = s.trim();
-          list.appendChild(li);
-        });
+        // 填充详情正文
+        var body = spotOverlay.querySelector('.spot-body');
+        if (body) {
+          body.innerHTML = CITY_DETAILS[idx] || '';
+          body.scrollTop = 0;
+        }
         spotOverlay.style.display = '';
         spotOverlay.offsetHeight;
         spotOverlay.classList.add('visible');
+        state._overlayOpen = true;
+        // 锁定背后滚动（html + body 同时设置，兼容 iOS）
+        document.documentElement.style.overflow = 'hidden';
+        document.body.style.overflow = 'hidden';
+        // 注册 touchmove 拦截（仅浮层打开时生效）
+        document.addEventListener('touchmove', _overlayTouchHandler, { passive: false });
+        document.addEventListener('touchstart', _overlayTouchStartHandler, { passive: true });
       });
     });
 
-    // 关闭浮层
-    if (spotOverlay) {
-      spotOverlay.querySelector('.spot-close').addEventListener('click', function() {
-        spotOverlay.classList.remove('visible');
-        setTimeout(function() { spotOverlay.style.display = 'none'; }, 300);
-      });
-      spotOverlay.addEventListener('click', function(e) {
-        if (e.target === spotOverlay) {
-          spotOverlay.classList.remove('visible');
-          setTimeout(function() { spotOverlay.style.display = 'none'; }, 300);
+    // document 级 touchmove 拦截（仅浮层打开时注册，关闭时移除，避免阻塞正常滚动）
+    var _overlayTouchHandler = function(e) {
+      var spotBody = spotOverlay.querySelector('.spot-body');
+      // 允许 .spot-body 内部滚动
+      if (spotBody && spotBody.contains(e.target)) {
+        // 边界拦截：在顶部/底部时阻止穿透
+        var atTop = spotBody.scrollTop <= 0;
+        var atBottom = spotBody.scrollTop + spotBody.clientHeight >= spotBody.scrollHeight - 1;
+        if (!spotBody._lastTouchY) spotBody._lastTouchY = e.touches[0].clientY;
+        var deltaY = spotBody._lastTouchY - e.touches[0].clientY;
+        spotBody._lastTouchY = e.touches[0].clientY;
+        if ((atTop && deltaY < 0) || (atBottom && deltaY > 0)) {
+          e.preventDefault();
         }
+        return;
+      }
+      // 其他所有区域一律阻止
+      e.preventDefault();
+    };
+    var _overlayTouchStartHandler = function(e) {
+      var spotBody = spotOverlay.querySelector('.spot-body');
+      if (spotBody) spotBody._lastTouchY = e.touches[0].clientY;
+    };
+
+    // 关闭浮层
+    function closeSpotOverlay() {
+      spotOverlay.classList.remove('visible');
+      state._overlayOpen = false;
+      // 移除 touchmove 拦截，恢复正常滚动性能
+      document.removeEventListener('touchmove', _overlayTouchHandler);
+      document.removeEventListener('touchstart', _overlayTouchStartHandler);
+      // 恢复滚动（不动 position，零跳动）
+      document.documentElement.style.overflow = '';
+      document.body.style.overflow = '';
+      setTimeout(function() { spotOverlay.style.display = 'none'; }, 300);
+    }
+    if (spotOverlay) {
+      spotOverlay.querySelector('.spot-close').addEventListener('click', closeSpotOverlay);
+      spotOverlay.addEventListener('click', function(e) {
+        if (e.target === spotOverlay) closeSpotOverlay();
       });
     }
 
@@ -910,6 +1153,24 @@
       setInterval(function() {
         if (particles) particles.autoTunePerformance();
       }, 2000);
+
+      // === 6.5 显示 AR 引导提示（分步） ===
+      (function() {
+        var g1 = document.getElementById('ar-guide-1');
+        var g2 = document.getElementById('ar-guide-2');
+        if (!g1 || !g2) return;
+        setTimeout(function() { g1.classList.add('visible'); }, 1000);
+        setTimeout(function() { g1.classList.remove('visible'); g1.classList.add('fade-out'); }, 4500);
+        setTimeout(function() { g2.classList.add('visible'); }, 5000);
+        setTimeout(function() { g2.classList.remove('visible'); g2.classList.add('fade-out'); }, 8500);
+        function dismissAll() {
+          [g1, g2].forEach(function(g) { g.classList.remove('visible'); g.classList.add('fade-out'); });
+        }
+        [g1, g2].forEach(function(g) {
+          g.addEventListener('click', dismissAll);
+          g.addEventListener('touchend', function(e) { e.preventDefault(); dismissAll(); });
+        });
+      })();
 
       // === 7. 绑定 AR 场景 UI 事件 ===
       if (btnSwitch) {

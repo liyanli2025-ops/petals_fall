@@ -18,7 +18,7 @@ html {
 body {
   width: 100%;
   min-height: 100vh;
-  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Source Han Serif', 'STSong', 'SimSun', serif;
   background: #fdf6e3;
   color: #5a4a3a;
   -webkit-tap-highlight-color: transparent;
@@ -48,15 +48,6 @@ body {
   pointer-events: none;
 }
 
-/* 彩铅背景图 — 兜底（视频下层） */
-.intro-bg {
-  position: absolute;
-  inset: 0;
-  background-size: cover;
-  background-position: center bottom;
-  z-index: 0;
-}
-
 /* 视频背景 — 放大裁掉左右白边 */
 .intro-video {
   position: absolute;
@@ -65,7 +56,18 @@ body {
   height: 100%;
   object-fit: cover;
   z-index: 1;
-  transform: scale(1.12);
+  transform: scale(1.25);
+  transform-origin: center center;
+}
+
+/* 兜底静态图也同步放大 */
+.intro-bg {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center bottom;
+  z-index: 0;
+  transform: scale(1.25);
   transform-origin: center center;
 }
 
@@ -283,7 +285,6 @@ body {
   opacity: 0;
   pointer-events: none;
   transition: none;
-  will-change: opacity, transform;
 }
 
 .trail-petal img {
@@ -296,9 +297,9 @@ body {
   animation: petalAppear 0.8s ease forwards;
 }
 
-/* 花瓣持续轻微摇摆 */
+/* 花瓣出现后保持静态（不再无限摇摆，减少合成层开销） */
 .trail-petal.floating {
-  animation: petalFloat 3s ease-in-out infinite;
+  /* 移除无限动画，直接设置最终状态 */
 }
 
 @keyframes petalAppear {
@@ -361,21 +362,10 @@ body {
 .city-node[data-index="7"] { align-items: flex-end; padding-right: 8%; }
 
 /* ============================================
-   氛围色带 — 花对应色的淡雅渐变（用 box-shadow 实现）
+   氛围色带 — 花对应色的淡雅渐变（radial-gradient，性能优）
    ============================================ */
 .city-aura {
-  position: absolute;
-  top: 40px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 1px;
-  height: 1px;
-  border-radius: 50%;
-  background: transparent;
-  box-shadow: 0 0 80px 60px var(--aura-color);
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.8s ease 0.2s;
+  display: none;
 }
 
 .city-node.bloomed .city-aura {
@@ -460,7 +450,8 @@ body {
 .city-node.bloomed .bloom-glow {
   opacity: 1;
   transform: translate(-50%, -50%) scale(1);
-  animation: glowPulse 3s ease-in-out infinite;
+  animation: glowPulse 3s ease-in-out 3;
+  animation-fill-mode: forwards;
 }
 
 @keyframes glowPulse {
@@ -472,12 +463,14 @@ body {
 .city-node.bloomed .flower-bud-img {
   opacity: 0;
   transform: translate(-50%, -50%) scale(0.3);
+  animation: none;
 }
 
 .city-node.bloomed .flower-bloom-img {
   opacity: 1;
   transform: translate(-50%, -50%) scale(1);
-  animation: flowerSway 4s ease-in-out 0.7s infinite;
+  animation: flowerSway 4s ease-in-out 0.7s 3;
+  animation-fill-mode: forwards;
 }
 
 /* 花朵轻柔摇晃 */
@@ -595,6 +588,7 @@ body {
 .city-node.bloomed .city-dot::before,
 .city-node.bloomed .city-dot::after {
   border-color: rgba(212, 114, 92, 0.5);
+  animation: none;
 }
 
 .city-name {
@@ -637,7 +631,7 @@ body {
 }
 
 /* ============================================
-   花瓣粒子画布（absolute，跟随 map-container 滚动）
+   花瓣粒子画布
    ============================================ */
 .particle-canvas {
   position: absolute;
@@ -645,6 +639,47 @@ body {
   left: 0;
   z-index: 5;
   pointer-events: none;
+}
+
+/* ============================================
+   花瓣残影（绽放后留在页面上的静态花瓣）
+   ============================================ */
+.petal-ghosts {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.ghost-petal {
+  position: absolute;
+  pointer-events: none;
+  object-fit: contain;
+}
+
+/* 预渲染静态花瓣（绽放后渐显） */
+.static-petal {
+  position: absolute;
+  pointer-events: none;
+  object-fit: contain;
+}
+
+/* ============================================
+   花瓣残影水印（绽放后永久留在页面上）
+   ============================================ */
+.petal-watermark {
+  position: absolute;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.petal-watermark img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 /* ============================================
@@ -813,6 +848,50 @@ body {
   z-index: 5;
   filter: blur(4px);
   -webkit-filter: blur(4px);
+}
+
+/* AR 引导提示 */
+.ar-guide {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 36px;
+  background: rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.6s ease;
+}
+.ar-guide.visible { opacity: 1; pointer-events: auto; }
+.ar-guide.fade-out { opacity: 0; pointer-events: none; transition: opacity 0.8s ease; }
+.ar-guide-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  animation: arGuideFloat 3s ease-in-out infinite;
+}
+.ar-guide-icon {
+  width: 60px;
+  height: 60px;
+  object-fit: contain;
+  opacity: 0.7;
+  filter: brightness(0) invert(1) drop-shadow(0 2px 10px rgba(0,0,0,0.25));
+}
+.ar-guide-text {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.7);
+  text-align: center;
+  letter-spacing: 0.1em;
+  line-height: 1.8;
+  text-shadow: 0 1px 8px rgba(0,0,0,0.4);
+}
+@keyframes arGuideFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
 }
 
 .ar-ui-overlay {
@@ -1259,7 +1338,7 @@ body {
 }
 
 /* ============================================
-   赏花地浮层
+   花事详情浮层
    ============================================ */
 .city-card-btn {
   cursor: pointer;
@@ -1278,6 +1357,8 @@ body {
   -webkit-backdrop-filter: blur(4px);
   opacity: 0;
   transition: opacity 0.3s ease;
+  touch-action: none;
+  -webkit-overflow-scrolling: auto;
 }
 
 .spot-overlay.visible {
@@ -1286,29 +1367,32 @@ body {
 
 .spot-card {
   position: relative;
-  width: 85%;
-  max-width: 340px;
+  width: 92%;
+  max-width: 400px;
+  max-height: 82vh;
   background: linear-gradient(180deg, #fdf6e3 0%, #fef8ec 50%, #fbecd2 100%);
   border-radius: 16px;
-  padding: 28px 24px 20px;
+  padding: 0;
   box-shadow: 0 8px 40px rgba(90, 74, 58, 0.2), 0 0 0 1px rgba(196, 168, 130, 0.2);
   transform: translateY(20px);
   transition: transform 0.3s ease;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
-/* 花朵水印（隐隐约约） */
 .spot-watermark {
   position: absolute;
   right: -20px;
   bottom: -20px;
-  width: 160px;
-  height: 160px;
+  width: 180px;
+  height: 180px;
   background-size: contain;
   background-repeat: no-repeat;
   background-position: center;
-  opacity: 0.08;
+  opacity: 0.06;
   pointer-events: none;
+  z-index: 0;
 }
 
 .spot-overlay.visible .spot-card {
@@ -1319,80 +1403,75 @@ body {
   position: absolute;
   top: 12px;
   right: 14px;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border: none;
   background: rgba(180, 160, 130, 0.15);
   border-radius: 50%;
-  font-size: 18px;
+  font-size: 20px;
   color: #a08060;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   line-height: 1;
+  z-index: 2;
+  transition: background 0.2s;
+}
+
+.spot-close:active {
+  background: rgba(180, 160, 130, 0.3);
 }
 
 .spot-header {
+  flex-shrink: 0;
   display: flex;
   align-items: baseline;
   gap: 8px;
-  margin-bottom: 4px;
+  padding: 24px 24px 12px;
+  border-bottom: 1px solid rgba(196, 168, 130, 0.15);
 }
 
 .spot-city-name {
-  font-size: 1.3rem;
+  font-size: 1.4rem;
   font-weight: 800;
   color: #5a4a3a;
   letter-spacing: 0.1em;
 }
 
-.spot-flower-tag {
-  font-size: 0.75rem;
-  color: #d4725c;
-  background: rgba(212, 114, 92, 0.1);
-  padding: 2px 8px;
-  border-radius: 10px;
-  letter-spacing: 0.05em;
-}
-
-.spot-title {
+.spot-flower-name {
   font-size: 0.8rem;
-  color: #a08060;
-  letter-spacing: 0.15em;
-  margin-bottom: 12px;
+  color: #d4725c;
+  letter-spacing: 0.1em;
 }
 
-.spot-list {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 16px;
-}
-
-.spot-list li {
+.spot-body {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px 24px 28px;
   position: relative;
-  padding: 8px 0 8px 18px;
-  font-size: 0.85rem;
+  z-index: 1;
+}
+
+.spot-body p {
+  font-size: 0.88rem;
+  line-height: 1.9;
   color: #5a4a3a;
-  line-height: 1.5;
-  border-bottom: 1px solid rgba(196, 168, 130, 0.15);
+  margin-bottom: 14px;
+  text-align: justify;
+  letter-spacing: 0.02em;
 }
 
-.spot-list li:last-child {
-  border-bottom: none;
+.spot-body p:last-child {
+  margin-bottom: 0;
 }
 
-.spot-list li::before {
-  content: '🌸';
-  position: absolute;
-  left: 0;
-  top: 8px;
-  font-size: 0.7rem;
-}
-
-.spot-tip {
-  font-size: 0.7rem;
-  color: #a08060;
-  text-align: center;
-  opacity: 0.7;
+.spot-body .spot-quote {
+  font-style: italic;
+  color: #8a7a68;
+  padding-left: 12px;
+  border-left: 2px solid rgba(212, 114, 92, 0.35);
+  margin-top: 6px;
 }

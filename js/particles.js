@@ -399,13 +399,22 @@ class PetalParticleSystem {
 
     let loadedCount = 0;
     const total = this.petalTexturePaths.length;
+    let textureTimedOut = false;
+    // 超时保护：8 秒后若纹理仍未全部加载完成，强制启动
+    const textureTimeout = setTimeout(() => {
+      if (loadedCount < total && !textureTimedOut) {
+        textureTimedOut = true;
+        console.warn('[PetalSystem] 纹理加载超时（8s），已加载 ' + loadedCount + '/' + total + '，强制启动');
+        this._onAllTexturesLoaded();
+      }
+    }, 8000);
     this.petalTexturePaths.forEach((path) => {
       const texture = this.textureLoader.load(path, () => {
         loadedCount++;
-        if (loadedCount === total) this._onAllTexturesLoaded();
+        if (loadedCount === total && !textureTimedOut) { clearTimeout(textureTimeout); this._onAllTexturesLoaded(); }
       }, undefined, () => {
         loadedCount++;
-        if (loadedCount === total) this._onAllTexturesLoaded();
+        if (loadedCount === total && !textureTimedOut) { clearTimeout(textureTimeout); this._onAllTexturesLoaded(); }
       });
       if (texture.colorSpace !== undefined) texture.colorSpace = THREE.SRGBColorSpace;
       texture.minFilter = THREE.LinearMipmapLinearFilter;
@@ -951,8 +960,8 @@ class PetalParticleSystem {
     }
     // FOV 60° → 半角 30°，加余量
     // 手机竖屏水平视角较窄，远景层需要更宽松的阈值才能看到足够多的朦胧花瓣
-    const cosThresholdNear = 0.42;  // ~65° 宽松
-    const cosThresholdFar  = 0.10;  // ~84° 远景极宽松，确保远景花瓣充足
+    const cosThresholdNear = 0.30;  // ~73° 更宽松，减少视野边缘花瓣突然消失
+    const cosThresholdFar  = -0.05; // >90° 远景花瓣只在完全背后才回收
     const collisionActive = this.bodyCollision && this.bodyCollision.isActive;
     const screenW = window.innerWidth, screenH = window.innerHeight;
     const projCamera = this.camera;

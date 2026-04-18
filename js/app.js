@@ -333,6 +333,27 @@
       $landing.classList.add('fade-out');
       setTimeout(() => { $landing.classList.add('hidden'); }, 800);
 
+      // === 4.1 显示 AR 引导提示（分步） ===
+      (function() {
+        var g1 = document.getElementById('ar-guide-1');
+        var g2 = document.getElementById('ar-guide-2');
+        if (!g1 || !g2) return;
+        // 第一个：1s 后显示，持续 3.5s
+        setTimeout(function() { g1.classList.add('visible'); }, 1000);
+        setTimeout(function() { g1.classList.remove('visible'); g1.classList.add('fade-out'); }, 4500);
+        // 第二个：5s 后显示，持续 3.5s
+        setTimeout(function() { g2.classList.add('visible'); }, 5000);
+        setTimeout(function() { g2.classList.remove('visible'); g2.classList.add('fade-out'); }, 8500);
+        // 点击提前关闭当前显示的
+        function dismissAll() {
+          [g1, g2].forEach(function(g) { g.classList.remove('visible'); g.classList.add('fade-out'); });
+        }
+        [g1, g2].forEach(function(g) {
+          g.addEventListener('click', dismissAll);
+          g.addEventListener('touchend', function(e) { e.preventDefault(); dismissAll(); });
+        });
+      })();
+
       // === 4.5 初始化拍照/录像 ===
       capture = new CaptureManager();
       capture.cameraManager = cameraModule;
