@@ -22,19 +22,28 @@
     </video>
     <!-- 视频无法播放时的静态兜底 -->
     <div class="intro-bg" style="background-image: url(img/colored-flowers.jpg);"></div>
-    <!-- 腾讯新闻Logo -->
-    <img class="intro-txnews-logo" src="https://mat1.gtimg.com/qqcdn/redian/petals_fall/txnews_logo.png" alt="腾讯新闻">
+    <!-- 腾讯新闻Logo丨画说Logo -->
+    <div class="intro-logo-bar">
+      <img class="intro-txnews-logo" src="https://mat1.gtimg.com/qqcdn/redian/petals_fall/txnews_logo.png" alt="腾讯新闻">
+      <span class="logo-divider">丨</span>
+      <img class="intro-huashuo-logo" src="huashuo_logo.png" alt="画说">
+    </div>
     <!-- 内容层 -->
     <div class="intro-content">
       <img class="intro-logo" src="https://mat1.gtimg.com/qqcdn/redian/petals_fall/logo1.png" alt="局部地区有花雨">
-      <p class="intro-subtitle">五一花开地图</p>
-      <p class="intro-desc">从北到南，八城繁花已备好<br>一键查看你的专属赏花路线</p>
-      <button id="btn-enter" class="btn-enter">查看花开地图</button>
+      <p class="intro-desc">从北到南，花都开了<br>一键解锁你的五一赏花地图</p>
+      <button id="btn-enter" class="btn-enter">一键开花</button>
     </div>
   </div>
 
   <!-- 主地图区域 -->
   <div id="map-container" class="map-container">
+    <!-- 右上角Logo -->
+    <div class="map-logo-bar">
+      <img class="map-txnews-logo" src="https://mat1.gtimg.com/qqcdn/redian/petals_fall/txnews_logo.png" alt="腾讯新闻">
+      <span class="logo-divider">丨</span>
+      <img class="map-huashuo-logo" src="huashuo_logo.png" alt="画说">
+    </div>
     <!-- 纸张纹理背景 -->
     <div class="paper-bg"></div>
 
@@ -55,7 +64,7 @@
     <div id="cities" class="cities">
 
       <!-- 城市1: 哈尔滨 - 丁香花 -->
-      <div class="city-node" data-city="harbin" data-index="0" data-spots="群力丁香公园「中国丁香第一园」|兆麟公园百年丁香|太阳岛紫雾飘香|哈工大校园" style="top: 50px;">
+      <div class="city-node" data-city="harbin" data-index="0" data-spots="群力丁香公园「中国丁香第一园」|兆麟公园百年丁香|太阳岛紫雾飘香|哈工大校园" style="top: 120px;">
         <div class="flower-container">
           <div class="city-aura" style="--aura-color: rgba(201,160,220,0.12);"></div>
           <div class="bloom-glow" style="--glow-color: rgba(201,160,220,0.4);"></div>
@@ -260,11 +269,26 @@
     <div id="petal-rain-guide" class="petal-rain-guide" style="display:none;">
       <div class="guide-content">
         <div class="guide-divider"></div>
-        <p class="guide-text">就算无法亲临花海<br>我们也为你备好了一场专属花雨</p>
-        <button id="btn-petal-rain" class="btn-petal-rain">开启花雨</button>
+        <p class="guide-title">此时此刻</p>
+        <p class="guide-text">一场专属于你的花雨即将绽放</p>
+        <p class="guide-subtitle">AR 沉浸花瓣体验</p>
+        <label class="guide-agreement" id="guide-agreement">
+          <input type="checkbox" id="guide-agree-checkbox">
+          <span class="agreement-checkmark"></span>
+          <span class="agreement-text">我已阅读并同意<a href="javascript:void(0)" onclick="event.stopPropagation();showAgreementModal('user')">《用户协议》</a>和<a href="javascript:void(0)" onclick="event.stopPropagation();showAgreementModal('privacy')">《隐私政策》</a></span>
+        </label>
+        <button id="btn-petal-rain" class="btn-petal-rain" disabled>开启花雨</button>
+        <p class="guide-tip">需要授权摄像头和陀螺仪权限</p>
       </div>
     </div>
 
+  </div>
+
+  <!-- 悬浮向下按钮 -->
+  <div id="scroll-down-btn" class="scroll-down-btn">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#8a7060" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="6 9 12 15 18 9"></polyline>
+    </svg>
   </div>
 
   <!-- AR 花瓣雨场景（初始隐藏） -->
@@ -373,5 +397,83 @@
 
   <!-- 灯塔数据埋点（使用花瓣雨CDN的report.js） -->
   <script src="https://mat1.gtimg.com/qqcdn/redian/petals_fall/report.8b01d9ba.js"></script>
+
+  <!-- 用户协议弹窗 -->
+  <div id="agreement-modal-user" class="agreement-modal" onclick="if(event.target===this)hideAgreementModal('user')">
+    <div class="agreement-modal-body">
+      <div class="agreement-modal-header">
+        <h2>用户协议</h2>
+        <button class="agreement-modal-close" onclick="hideAgreementModal('user')">&times;</button>
+      </div>
+      <div class="agreement-modal-content">
+        <h4>1. 协议确认</h4>
+        <p>欢迎使用「局部地区有花雨」AR 沉浸花瓣体验服务（以下简称"本服务"）。本服务由深圳市腾讯计算机系统有限公司（以下简称"我们"）提供。</p>
+        <p>在您勾选同意并点击"开启花雨"前，请务必仔细阅读本协议。您勾选同意即视为已阅读、理解并接受本协议的全部内容。</p>
+        <h4>2. 服务内容</h4>
+        <p>本服务是一款基于 Web 技术的 AR 互动体验页面，主要功能包括：</p>
+        <ul>
+          <li>通过设备摄像头捕捉实时画面，将虚拟花瓣雨叠加到真实场景中；</li>
+          <li>通过设备陀螺仪/加速度计感应设备方向和运动，实现 360° 环绕花瓣效果；</li>
+          <li>通过浏览器端 AI 模型识别人物轮廓，实现花瓣与人物的遮挡互动效果；</li>
+          <li>提供拍照和录像功能，将 AR 效果保存为图片或视频。</li>
+        </ul>
+        <h4>3. 权限使用</h4>
+        <p>本服务需要您授权以下设备权限，且仅在您主动授权后才会启用：</p>
+        <p><strong>摄像头：</strong>用于捕捉实时画面作为 AR 背景。所有画面仅在设备本地实时处理，不会上传至任何服务器。</p>
+        <p><strong>陀螺仪/加速度计：</strong>用于检测设备方向和运动，实现花瓣随设备转动的效果。</p>
+        <h4>4. 知识产权</h4>
+        <p>本服务中的所有内容（包括但不限于页面设计、花瓣纹理素材、代码、文案等）的知识产权归我们所有，受法律保护。</p>
+        <h4>5. 免责声明</h4>
+        <p>本服务按"现状"提供。我们不对因网络状况、设备兼容性或浏览器限制导致的体验异常承担责任。</p>
+        <h4>6. 联系我们</h4>
+        <p>邮箱：Dataprivacy@tencent.com</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 隐私政策弹窗 -->
+  <div id="agreement-modal-privacy" class="agreement-modal" onclick="if(event.target===this)hideAgreementModal('privacy')">
+    <div class="agreement-modal-body">
+      <div class="agreement-modal-header">
+        <h2>隐私政策</h2>
+        <button class="agreement-modal-close" onclick="hideAgreementModal('privacy')">&times;</button>
+      </div>
+      <div class="agreement-modal-content">
+        <p>我们（深圳市腾讯计算机系统有限公司）深知个人信息的重要性，并严格遵循合法、正当、必要原则保护您的隐私。</p>
+        <div class="agreement-highlight"><strong>核心承诺：</strong>本服务的摄像头画面、陀螺仪数据、人体轮廓识别及拍摄内容均在您的设备本地处理，<strong>不会被上传至任何服务器</strong>。</div>
+        <h4>1. 我们收集和使用的信息</h4>
+        <p><strong>摄像头权限：</strong>捕捉实时画面作为 AR 背景。所有画面数据仅在浏览器内实时处理和渲染，不会被录制、存储或上传。关闭页面后自动清除。</p>
+        <p><strong>陀螺仪/加速度计：</strong>检测设备方向实现花瓣随动。数据仅用于实时计算，不存储。</p>
+        <h4>2. 信息存储与安全</h4>
+        <p>本服务不设任何服务器端数据存储。所有数据处理均在您的设备浏览器内完成。</p>
+        <h4>3. 您的权利</h4>
+        <p>您随时可通过浏览器或系统设置关闭摄像头和传感器授权。关闭页面后所有数据自动清除。</p>
+        <h4>4. 联系我们</h4>
+        <p>邮箱：Dataprivacy@tencent.com</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 协议弹窗 + 勾选控制 -->
+  <script>
+  (function() {
+    window.showAgreementModal = function(type) {
+      var modal = document.getElementById('agreement-modal-' + type);
+      if (modal) modal.classList.add('show');
+    };
+    window.hideAgreementModal = function(type) {
+      var modal = document.getElementById('agreement-modal-' + type);
+      if (modal) modal.classList.remove('show');
+    };
+    // 勾选协议后启用按钮
+    var cb = document.getElementById('guide-agree-checkbox');
+    var btn = document.getElementById('btn-petal-rain');
+    if (cb && btn) {
+      cb.addEventListener('change', function() {
+        btn.disabled = !cb.checked;
+      });
+    }
+  })();
+  </script>
 </body>
 </html>

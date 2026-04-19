@@ -2,6 +2,27 @@
    五一花开地图 H5 — 手绘彩铅风格（图片版）
    ============================================ */
 
+/* 沐川体 */
+@font-face {
+  font-family: 'MuChuan';
+  src: url('muchuan.otf') format('opentype');
+  font-display: swap;
+}
+
+/* 画说衬线体（思源宋体子集，仅含页面用字） */
+@font-face {
+  font-family: 'HuaShuo Serif SC';
+  src: url('huashuo-serif-regular.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'HuaShuo Serif SC';
+  src: url('huashuo-serif-bold.woff2') format('woff2');
+  font-weight: 700;
+  font-display: swap;
+}
+
 /* Reset & Base */
 *, *::before, *::after {
   margin: 0;
@@ -13,17 +34,20 @@ html {
   font-size: 16px;
   scroll-behavior: smooth;
   overflow-x: hidden;
+  height: 100%;
 }
 
 body {
   width: 100%;
-  min-height: 100vh;
-  font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Source Han Serif', 'STSong', 'SimSun', serif;
+  min-height: 100%;
+  font-family: 'HuaShuo Serif SC', 'Noto Serif SC', 'Source Han Serif SC', 'STSong', 'SimSun', serif;
   background: #fdf6e3;
   color: #5a4a3a;
   -webkit-tap-highlight-color: transparent;
   overflow-x: hidden;
   touch-action: pan-y;
+  margin: 0;
+  padding: 0;
 }
 
 /* ============================================
@@ -48,7 +72,7 @@ body {
   pointer-events: none;
 }
 
-/* 视频背景 — 放大裁掉左右白边 */
+/* 视频背景 — 覆盖全屏 */
 .intro-video {
   position: absolute;
   inset: 0;
@@ -56,16 +80,18 @@ body {
   height: 100%;
   object-fit: cover;
   z-index: 1;
-  transform: scale(1.25);
+  transform: scale(1.1);
   transform-origin: center center;
 }
 
-/* 兜底静态图也同步放大 */
+/* 兜底静态图 */
 .intro-bg {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
   background-size: cover;
-  background-position: center bottom;
+  background-position: center center;
   z-index: 0;
   transform: scale(1.25);
   transform-origin: center center;
@@ -76,17 +102,34 @@ body {
   display: none;
 }
 
-/* 腾讯新闻Logo */
-.intro-txnews-logo {
+/* 右上角 Logo 组合栏 */
+.intro-logo-bar {
   position: absolute;
-  top: calc(16px + env(safe-area-inset-top, 0px));
-  right: 16px;
-  width: 108px;
-  height: auto;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  right: 12px;
   z-index: 10;
-  opacity: 0.9;
+  display: flex;
+  align-items: center;
+  gap: 0;
   pointer-events: none;
   filter: drop-shadow(0 1px 3px rgba(0,0,0,0.35)) drop-shadow(0 0 8px rgba(0,0,0,0.15));
+}
+
+.intro-txnews-logo {
+  height: 22px;
+  width: auto;
+}
+
+.logo-divider {
+  color: rgba(255,255,255,0.6);
+  font-size: 18px;
+  line-height: 1;
+  margin: 0 2px;
+}
+
+.intro-huashuo-logo {
+  height: 20px;
+  width: auto;
 }
 
 /* 内容层 — 居中偏下，适配小屏 */
@@ -224,7 +267,7 @@ body {
 .map-container {
   position: relative;
   width: 100%;
-  min-height: 3900px;
+  min-height: 4050px;
   padding-bottom: 100px;
 }
 
@@ -249,6 +292,46 @@ body {
   background: url(img/sketch-flowers.jpg) no-repeat center center / cover;
   opacity: 0.12;
   pointer-events: none;
+}
+
+/* ============================================
+   正文页右上角 Logo
+   ============================================ */
+.map-logo-bar {
+  position: fixed;
+  top: calc(10px + env(safe-area-inset-top, 0px));
+  right: 10px;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.map-container.scrolling .map-logo-bar,
+.map-logo-bar.visible {
+  opacity: 1;
+}
+
+.map-txnews-logo {
+  height: 18px;
+  width: auto;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.15));
+}
+
+.map-logo-bar .logo-divider {
+  color: rgba(138, 120, 100, 0.5);
+  font-size: 14px;
+  line-height: 1;
+  margin: 0 2px;
+}
+
+.map-huashuo-logo {
+  height: 16px;
+  width: auto;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.15));
 }
 
 /* ============================================
@@ -535,11 +618,11 @@ body {
 
 .city-dot {
   position: relative;
-  width: 12px;
-  height: 12px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: transparent;
-  border: 1.5px solid #d4725c;
+  border: 2px solid #d4725c;
   margin-bottom: 4px;
 }
 
@@ -548,9 +631,9 @@ body {
 .city-dot::after {
   content: '';
   position: absolute;
-  inset: -4px;
+  inset: -5px;
   border-radius: 50%;
-  border: 1px solid rgba(212, 114, 92, 0.4);
+  border: 1.5px solid rgba(212, 114, 92, 0.4);
   animation: dotPulse 2.5s ease-out infinite;
 }
 
@@ -564,7 +647,7 @@ body {
     opacity: 0.8;
   }
   100% {
-    transform: scale(1.8);
+    transform: scale(2);
     opacity: 0;
   }
 }
@@ -574,8 +657,8 @@ body {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 4px;
-  height: 4px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #d4725c;
   transform: translate(-50%, -50%);
@@ -588,11 +671,10 @@ body {
 .city-node.bloomed .city-dot::before,
 .city-node.bloomed .city-dot::after {
   border-color: rgba(212, 114, 92, 0.5);
-  animation: none;
 }
 
 .city-name {
-  font-size: 1.3rem;
+  font-size: 1.5rem;
   font-weight: 800;
   color: #5a4a3a;
   letter-spacing: 0.1em;
@@ -601,18 +683,59 @@ body {
 }
 
 .city-flower-name {
-  font-size: 0.8rem;
+  font-size: 0.95rem;
   color: #a08060;
   letter-spacing: 0.15em;
 }
 
 .info-text {
-  font-size: 0.8rem;
+  font-size: 0.95rem;
   line-height: 1.6;
   color: #8a7a68;
-  font-style: italic;
+  font-family: 'MuChuan', 'STKaiti', 'KaiTi', serif;
+  font-style: normal;
   letter-spacing: 0.05em;
   margin-top: 4px;
+}
+
+/* ============================================
+   悬浮向下按钮
+   ============================================ */
+.scroll-down-btn {
+  position: fixed;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(253, 246, 227, 0.7);
+  border: 1px solid rgba(196, 168, 130, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 90;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  animation: scrollBtnBounce 2s ease-in-out infinite;
+}
+
+.scroll-down-btn.visible {
+  opacity: 1;
+}
+
+.scroll-down-btn.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@keyframes scrollBtnBounce {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50% { transform: translateX(-50%) translateY(5px); }
 }
 
 /* ============================================
@@ -1284,12 +1407,172 @@ body {
   margin-bottom: 4px;
 }
 
+.guide-title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #5a4a3a;
+  letter-spacing: 0.1em;
+  text-shadow: 1px 1px 0 rgba(255, 255, 255, 0.8);
+}
+
 .guide-text {
-  font-size: 0.95rem;
+  font-size: 1.05rem;
   line-height: 1.8;
   color: #8a7a68;
   letter-spacing: 0.08em;
-  font-style: italic;
+  font-style: normal;
+  font-family: 'MuChuan', 'STKaiti', serif;
+}
+
+.guide-subtitle {
+  font-size: 0.8rem;
+  color: #b0a090;
+  letter-spacing: 0.15em;
+  margin-top: -6px;
+}
+
+.guide-tip {
+  font-size: 0.72rem;
+  color: #b8a898;
+  margin-top: 4px;
+}
+
+/* 用户协议勾选（花瓣雨引导区） */
+.guide-agreement {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  cursor: pointer;
+  max-width: 300px;
+  margin: 8px auto 0;
+}
+
+.guide-agreement input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.guide-agreement .agreement-checkmark {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid rgba(180, 140, 100, 0.5);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.5);
+  position: relative;
+  margin-top: 1px;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.guide-agreement .agreement-checkmark::after {
+  content: '';
+  position: absolute;
+  left: 4.5px;
+  top: 1px;
+  width: 5px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) scale(0);
+  transition: transform 0.2s ease;
+}
+
+.guide-agreement input:checked + .agreement-checkmark {
+  background: rgba(200, 140, 100, 0.7);
+  border-color: rgba(200, 140, 100, 0.9);
+}
+
+.guide-agreement input:checked + .agreement-checkmark::after {
+  transform: rotate(45deg) scale(1);
+}
+
+.guide-agreement .agreement-text {
+  font-size: 0.72rem;
+  color: #a09080;
+  line-height: 1.5;
+}
+
+.guide-agreement .agreement-text a {
+  color: #c4956a;
+  text-decoration: underline;
+}
+
+.btn-petal-rain:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* 协议弹窗 */
+.agreement-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 10000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.agreement-modal.show {
+  display: flex;
+}
+.agreement-modal-body {
+  background: #fff;
+  border-radius: 12px;
+  max-width: 360px;
+  width: 100%;
+  max-height: 70vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.agreement-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid #eee;
+}
+.agreement-modal-header h2 {
+  font-size: 1.1rem;
+  color: #333;
+  margin: 0;
+}
+.agreement-modal-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #999;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.agreement-modal-content {
+  padding: 16px 20px 24px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  font-size: 0.82rem;
+  line-height: 1.7;
+  color: #555;
+}
+.agreement-modal-content h4 {
+  margin: 12px 0 6px;
+  color: #333;
+  font-size: 0.9rem;
+}
+.agreement-modal-content ul {
+  padding-left: 1.2em;
+  margin: 6px 0;
+}
+.agreement-highlight {
+  background: #fef5e7;
+  border-left: 3px solid #e8a54c;
+  padding: 10px 14px;
+  margin: 10px 0;
+  border-radius: 4px;
+  font-size: 0.82rem;
 }
 
 .btn-petal-rain {

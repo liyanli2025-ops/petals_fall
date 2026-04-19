@@ -61,6 +61,7 @@
     startParticleLoop();
     addDecoFlowers();
     setupIntroVideo();
+    setupScrollDownBtn();
   }
 
   // ==========================================
@@ -217,7 +218,7 @@
     var points = [];
     var containerW = 375;
 
-    var cityTops = [50, 600, 1050, 1500, 1950, 2400, 2850, 3300];
+    var cityTops = [120, 600, 1050, 1500, 1950, 2400, 2850, 3300];
     var cityXs = [
       containerW * 0.30,
       containerW * 0.65,
@@ -599,7 +600,7 @@
     if (!container) return;
 
     // 每个城市花朵的 top 值（与 HTML style 一致）
-    var cityTops = [50, 600, 1050, 1500, 1950, 2400, 2850, 3300];
+    var cityTops = [120, 600, 1050, 1500, 1950, 2400, 2850, 3300];
     // 花朵中心 X 的大致百分比（左右交错）
     var cityXPercents = [0.30, 0.65, 0.35, 0.68, 0.28, 0.70, 0.32, 0.66];
     // 花朵容器高度 130px，花朵中心大致在 top + 65
@@ -1283,6 +1284,35 @@
         el.classList.add('visible');
       }
     });
+  }
+
+  // ==========================================
+  // 悬浮向下按钮
+  // ==========================================
+  function setupScrollDownBtn() {
+    var btn = document.getElementById('scroll-down-btn');
+    if (!btn) return;
+
+    // 点击向下滚动一屏
+    btn.addEventListener('click', function() {
+      window.scrollBy({ top: window.innerHeight * 0.7, behavior: 'smooth' });
+    });
+
+    // 监听滚动：开屏消失后显示，到底部时隐藏
+    var shown = false;
+    window.addEventListener('scroll', function() {
+      if (state.introVisible) return;
+      var scrollY = window.pageYOffset || document.documentElement.scrollTop;
+      var docH = document.documentElement.scrollHeight;
+      var vh = window.innerHeight;
+      var atBottom = scrollY + vh >= docH - 100;
+
+      if (atBottom) {
+        if (shown) { btn.classList.remove('visible'); btn.classList.add('hidden'); shown = false; }
+      } else {
+        if (!shown) { btn.classList.remove('hidden'); btn.classList.add('visible'); shown = true; }
+      }
+    }, { passive: true });
   }
 
   // ==========================================
