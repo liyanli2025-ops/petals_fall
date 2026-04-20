@@ -63,6 +63,7 @@
     setupIntroVideo();
     setupBgVideo();
     setupScrollDownBtn();
+    setupMapHint();
   }
 
   // ==========================================
@@ -1391,6 +1392,98 @@
         if (!shown) { btn.classList.remove('hidden'); btn.classList.add('visible'); shown = true; }
       }
     }, { passive: true });
+  }
+
+  // ==========================================
+  // 新手引导：半透明灰色蒙版 + 手指点击指引
+  // 进入地图后短暂显示，手指指向哈尔滨 city-dot
+  // 点击蒙版任意处、滚动、或超时后缓缓消失
+  // ==========================================
+  function setupMapHint() {
+    var hint = document.getElementById('map-hint');
+    if (!hint) return;
+
+    var finger = hint.querySelector('.map-hint-finger');
+    var tapRing = hint.querySelector('.map-hint-tap-ring');
+
+    var shown = false;
+    var dismissed = false;
+    var hideTimer = null;
+
+    function positionHint() {
+      var firstNode = document.querySelector('.city-node[data-index="0"]');
+      if (!firstNode) return false;
+      var dot = firstNode.querySelector('.city-dot');
+      if (!dot) return false;
+
+      // city-dot 的视口坐标（因为蒙版是 fixed 定位）
+      var dotRect = dot.getBoundingClientRect();
+      var tx = dotRect.left + dotRect.width / 2;
+      var ty = dotRect.top + dotRect.height / 2;
+
+      // 手指容器：图片顶部中心（指尖）对齐到 city-dot 正上方一点
+      // CSS 中 transform: translate(-50%, 0) 让容器的顶部水平中心落在 (left, top)
+      finger.style.left = tx + 'px';
+      finger.style.top = (ty - 4) + 'px';
+
+      // 指尖圆环：直接套在 city-dot 上
+      tapRing.style.left = tx + 'px';
+      tapRing.style.top = ty + 'px';
+      return true;
+    }
+
+    function showHint() {
+      if (shown || dismissed) return;
+      var ok = positionHint();
+      if (!ok) return;
+      shown = true;
+      hint.classList.add('visible');
+      // 蒙版点击 / 任意交互立即消失
+      hint.addEventListener('click', dismissHint, { once: true });
+      hint.addEventListener('touchstart', dismissHint, { once: true, passive: true });
+      hideTimer = setTimeout(dismissHint, 2800);
+    }
+
+    function dismissHint() {
+      if (dismissed) return;
+      dismissed = true;
+      clearTimeout(hideTimer);
+      hint.classList.add('dismiss');
+      hint.classList.remove('visible');
+      setTimeout(function() {
+        if (hint.parentNode) hint.parentNode.removeChild(hint);
+      }, 1800);
+      window.removeEventListener('scroll', onScroll);
+    }
+
+    var scrollStart = null;
+    function onScroll() {
+      if (dismissed) return;
+      var y = window.pageYOffset || document.documentElement.scrollTop;
+      if (scrollStart === null) scrollStart = y;
+      if (Math.abs(y - scrollStart) > 40) dismissHint();
+    }
+
+    // 窗口大小变化时重新定位
+    function onResize() {
+      if (!shown || dismissed) return;
+      positionHint();
+    }
+    window.addEventListener('resize', onResize);
+
+    var waitTimer = setInterval(function() {
+      if (state.introVisible) return;
+      clearInterval(waitTimer);
+      // 等地图渐入稳定
+      setTimeout(function() {
+        showHint();
+        window.addEventListener('scroll', onScroll, { passive: true });
+      }, 900);
+    }, 200);
+
+    setTimeout(function() {
+      if (!shown && !dismissed) clearInterval(waitTimer);
+    }, 30000);
   }
 
   // ==========================================

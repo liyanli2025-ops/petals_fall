@@ -5,12 +5,13 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
   <title>五一花开地图｜从北到南，一路繁花</title>
   <meta property="og:title" content="五一花开地图｜从北到南，一路繁花">
   <meta property="og:description" content="跟着春风的脚步，看遍中国从北到南的绝美花海">
   <meta property="og:image" content="">
   <meta property="og:url" content="">
+  <meta name="theme-color" content="#fdf6e3" id="theme-color-meta">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -46,7 +47,10 @@
     </div>
     <!-- 纸张纹理背景 -->
     <div class="paper-bg"></div>
-
+    <!-- 视频纹理背景 -->
+    <video class="paper-bg-video" autoplay muted loop playsinline webkit-playsinline x5-video-player-type="h5-page">
+      <source src="https://mat1.gtimg.com/qqcdn/redian/flower_map/img/bg-flower-sketch.mp4" type="video/mp4">
+    </video>
     <!-- SVG 路线（隐藏，仅用于路径计算） -->
     <svg id="route-svg" class="route-svg" viewBox="0 0 375 4800" preserveAspectRatio="xMidYMin meet" style="pointer-events:none;">
       <defs>
@@ -64,7 +68,7 @@
     <div id="cities" class="cities">
 
       <!-- 城市1: 哈尔滨 - 丁香花 -->
-      <div class="city-node" data-city="harbin" data-index="0" data-spots="群力丁香公园「中国丁香第一园」|兆麟公园百年丁香|太阳岛紫雾飘香|哈工大校园" style="top: 120px;">
+      <div class="city-node" data-city="harbin" data-index="0" data-spots="群力丁香公园「中国丁香第一园」|兆麟公园百年丁香|太阳岛紫雾飘香|哈工大校园" style="top: 40px;">
         <div class="flower-container">
           <div class="city-aura" style="--aura-color: rgba(201,160,220,0.12);"></div>
           <div class="bloom-glow" style="--glow-color: rgba(201,160,220,0.4);"></div>
@@ -179,7 +183,7 @@
       </div>
 
       <!-- 城市6: 婺源 - 紫藤花 -->
-      <div class="city-node" data-city="wuyuan" data-index="5" data-spots="篁岭鲜花小镇紫瀑垂帘映徽派粉墙|思溪延村古巷幽径藤萝绕" style="top: 2400px;">
+      <div class="city-node" data-city="wuyuan" data-index="5" data-spots="篁岭鲜花小镇紫瀑垂帘映徽派粉墙|思溪延村古巷幽径藤萝绕" style="top: 2320px;">
         <div class="flower-container">
           <div class="city-aura" style="--aura-color: rgba(160,120,200,0.10);"></div>
           <div class="bloom-glow" style="--glow-color: rgba(160,120,200,0.35);"></div>
@@ -225,7 +229,7 @@
       </div>
 
       <!-- 城市8: 三亚 - 三角梅 -->
-      <div class="city-node" data-city="sanya" data-index="7" data-spots="三角梅科博园300+品种博览|椰梦长廊滨海花径|鹿回头公园四季花开不败" style="top: 3300px;">
+      <div class="city-node" data-city="sanya" data-index="7" data-spots="三角梅科博园300+品种博览|椰梦长廊滨海花径|鹿回头公园四季花开不败" style="top: 3220px;">
         <div class="flower-container">
           <div class="city-aura" style="--aura-color: rgba(240,64,160,0.10);"></div>
           <div class="bloom-glow" style="--glow-color: rgba(240,64,160,0.35);"></div>
@@ -269,7 +273,7 @@
     <div id="petal-rain-guide" class="petal-rain-guide" style="display:none;">
       <div class="guide-content">
         <div class="guide-divider"></div>
-        <p class="guide-title">此时此刻</p>
+        <p class="guide-title">此时此地</p>
         <p class="guide-text">一场专属于你的花雨即将绽放</p>
         <p class="guide-subtitle">AR 沉浸花瓣体验</p>
         <label class="guide-agreement" id="guide-agreement">
@@ -282,6 +286,15 @@
       </div>
     </div>
 
+  </div>
+
+  <!-- 新手引导：半透明蒙版 + 手指点击指引（指向哈尔滨圆点） -->
+  <div id="map-hint" class="map-hint" aria-hidden="true">
+    <div class="map-hint-tap-ring"></div>
+    <div class="map-hint-finger">
+      <img class="map-hint-hand" src="img/hand.png" alt="">
+      <span class="map-hint-text">轻点，看花事</span>
+    </div>
   </div>
 
   <!-- 悬浮向下按钮 -->
@@ -395,8 +408,8 @@
 
   <script charset="utf-8" src="app.js"></script>
 
-  <!-- 灯塔数据埋点（使用花瓣雨CDN的report.js） -->
-  <script src="https://mat1.gtimg.com/qqcdn/redian/petals_fall/report.8b01d9ba.js"></script>
+  <!-- 灯塔数据埋点（花开地图独立 activityId: flower_map） -->
+  <script src="report.js"></script>
 
   <!-- 用户协议弹窗 -->
   <div id="agreement-modal-user" class="agreement-modal" onclick="if(event.target===this)hideAgreementModal('user')">
