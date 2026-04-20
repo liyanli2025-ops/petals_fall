@@ -34,14 +34,15 @@ html {
   font-size: 16px;
   scroll-behavior: smooth;
   overflow-x: hidden;
-  height: 100%;
+  min-height: 100%;
+  background: #fdf6e3;
 }
 
 body {
   width: 100%;
   min-height: 100%;
   font-family: 'HuaShuo Serif SC', 'Noto Serif SC', 'Source Han Serif SC', 'STSong', 'SimSun', serif;
-  background: #fdf6e3;
+  background: transparent;
   color: #5a4a3a;
   -webkit-tap-highlight-color: transparent;
   overflow-x: hidden;
@@ -55,7 +56,10 @@ body {
    ============================================ */
 .intro {
   position: fixed;
-  inset: 0;
+  top: calc(-1 * env(safe-area-inset-top, 0px));
+  left: 0;
+  right: 0;
+  bottom: calc(-1 * env(safe-area-inset-bottom, 0px));
   z-index: 1000;
   display: flex;
   flex-direction: column;
@@ -267,13 +271,23 @@ body {
 .map-container {
   position: relative;
   width: 100%;
-  min-height: 4050px;
+  min-height: 3990px;
+  padding-top: 20px;
   padding-bottom: 100px;
+  opacity: 0;
+  transition: opacity 1s ease;
+}
+
+.map-container.fade-in {
+  opacity: 1;
 }
 
 .paper-bg {
   position: fixed;
-  inset: 0;
+  top: calc(-1 * env(safe-area-inset-top, 0px));
+  left: 0;
+  right: 0;
+  bottom: calc(-1 * env(safe-area-inset-bottom, 0px));
   z-index: -1;
   background:
     linear-gradient(180deg,
@@ -283,6 +297,12 @@ body {
       #fcf0d8 80%,
       #fbecd2 100%
     );
+  opacity: 0;
+  transition: opacity 0.8s ease;
+}
+
+.paper-bg.fade-in {
+  opacity: 1;
 }
 
 .paper-bg::after {
@@ -292,6 +312,32 @@ body {
   background: url(img/sketch-flowers.jpg) no-repeat center center / cover;
   opacity: 0.12;
   pointer-events: none;
+  transition: opacity 0.6s ease;
+}
+
+/* 视频能播放时隐藏静态兜底图 */
+.paper-bg.video-ready::after {
+  opacity: 0;
+}
+
+/* 视频纹理背景 */
+.paper-bg-video {
+  position: fixed;
+  top: calc(-1 * env(safe-area-inset-top, 0px));
+  left: 0;
+  right: 0;
+  bottom: calc(-1 * env(safe-area-inset-bottom, 0px));
+  z-index: -1;
+  width: 100%;
+  height: calc(100% + env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px));
+  object-fit: cover;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 1s ease 0.3s;
+}
+
+.paper-bg-video.fade-in {
+  opacity: 0.2;
 }
 
 /* ============================================
@@ -1673,7 +1719,7 @@ body {
   background-size: contain;
   background-repeat: no-repeat;
   background-position: center;
-  opacity: 0.06;
+  opacity: 0.12;
   pointer-events: none;
   z-index: 0;
 }

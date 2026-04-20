@@ -61,6 +61,7 @@
     startParticleLoop();
     addDecoFlowers();
     setupIntroVideo();
+    setupBgVideo();
     setupScrollDownBtn();
   }
 
@@ -133,6 +134,65 @@
   }
 
   // ==========================================
+  // 背景视频自动播放（微信兼容），播放后隐藏静态兜底图
+  // ==========================================
+  function setupBgVideo() {
+    var video = document.querySelector('.paper-bg-video');
+    var paperBg = document.querySelector('.paper-bg');
+    if (!video) return;
+
+    var played = false;
+    function onPlaying() {
+      if (played) return;
+      played = true;
+      // 视频能播放，隐藏静态背景图的 ::after 伪元素
+      if (paperBg) paperBg.classList.add('video-ready');
+    }
+
+    function tryPlay() {
+      if (!video || !video.paused) return;
+      video.muted = true;
+      var p = video.play();
+      if (p && p.then) p.then(onPlaying).catch(function(){});
+    }
+
+    video.addEventListener('playing', onPlaying);
+    video.addEventListener('timeupdate', function onTU() {
+      if (video.currentTime > 0.05) { onPlaying(); video.removeEventListener('timeupdate', onTU); }
+    });
+
+    tryPlay();
+    video.addEventListener('loadedmetadata', tryPlay);
+    video.addEventListener('canplay', tryPlay);
+
+    // 微信专用：WeixinJSBridge
+    var isWx = /MicroMessenger/i.test(navigator.userAgent);
+    if (isWx) {
+      var wxAutoPlay = function() {
+        if (window.WeixinJSBridge) {
+          window.WeixinJSBridge.invoke('getNetworkType', {}, function() { tryPlay(); });
+        }
+      };
+      if (window.WeixinJSBridge) { wxAutoPlay(); }
+      else { document.addEventListener('WeixinJSBridgeReady', wxAutoPlay, false); }
+    }
+
+    window.addEventListener('load', tryPlay);
+    var retryCount = 0;
+    var retryTimer = setInterval(function() {
+      retryCount++;
+      tryPlay();
+      if (!video.paused || retryCount >= 6) clearInterval(retryTimer);
+    }, 500);
+
+    // 触摸兜底
+    document.addEventListener('touchstart', function ts2() {
+      tryPlay();
+      document.removeEventListener('touchstart', ts2);
+    }, { once: true, passive: true });
+  }
+
+  // ==========================================
   // 开屏滑动消失
   // ==========================================
   function setupIntroScroll() {
@@ -175,6 +235,10 @@
     var intro = document.getElementById('intro');
     if (!intro) return;
 
+    // 切换 theme-color 到地图页主体色
+    var themeMeta = document.getElementById('theme-color-meta');
+    if (themeMeta) themeMeta.setAttribute('content', '#f5e6d0');
+
     // 先锁定滚动位置到顶部
     document.body.style.overflow = 'hidden';
     window.scrollTo(0, 0);
@@ -186,26 +250,40 @@
     var video = intro.querySelector('.intro-video');
     if (video) { video.pause(); video.src = ''; }
 
+    // === 地图区域渐入（与开屏淡出交叉渐变） ===
+    var mc = document.querySelector('.map-container');
+    var paperBg = document.querySelector('.paper-bg');
+    var paperBgVideo = document.querySelector('.paper-bg-video');
+
+    // 300ms 后纸张背景和视频背景先渐入
+    setTimeout(function() {
+      if (paperBg) paperBg.classList.add('fade-in');
+      if (paperBgVideo) paperBgVideo.classList.add('fade-in');
+    }, 300);
+
+    // 500ms 后地图内容渐入 + 轻微上浮
+    setTimeout(function() {
+      if (mc) mc.classList.add('fade-in', 'scrolling');
+    }, 500);
+
     var pb = document.getElementById('progress-bar');
     if (pb) pb.classList.add('visible');
-    var mc = document.querySelector('.map-container');
-    if (mc) mc.classList.add('scrolling');
 
-    setTimeout(animateRoute, 600);
+    setTimeout(animateRoute, 800);
 
     // 开屏消失后主动触发哈尔滨（第一个城市）绽放
     setTimeout(function() {
       if (state.cityNodes[0]) {
         triggerBloom(state.cityNodes[0], 0);
       }
-    }, 1000);
+    }, 1200);
 
     setTimeout(function() {
       intro.style.display = 'none';
       // 确保在顶部，然后解锁滚动
       window.scrollTo(0, 0);
       document.body.style.overflow = '';
-    }, 900);
+    }, 1000);
   }
 
   // ==========================================
@@ -292,7 +370,7 @@
     var containerWidth = mapContainer ? mapContainer.offsetWidth : window.innerWidth;
     // SVG viewBox 是 375 宽，container 实际宽度按比例缩放
     var scaleX = containerWidth / 375;
-    // viewBox 高 4800，但 map-container min-height 是 3900px
+    // viewBox 高 4800，但 map-container min-height 是 3970px
     // SVG preserveAspectRatio="xMidYMin meet"，所以 SVG 实际渲染高度 = containerWidth / 375 * 4800
     var svgRenderHeight = containerWidth / 375 * 4800;
     var scaleY = svgRenderHeight / 4800; // 等于 scaleX
@@ -600,7 +678,7 @@
     if (!container) return;
 
     // 每个城市花朵的 top 值（与 HTML style 一致）
-    var cityTops = [120, 600, 1050, 1500, 1950, 2400, 2850, 3300];
+    var cityTops = [40, 520, 970, 1420, 1870, 2320, 2770, 3220];
     // 花朵中心 X 的大致百分比（左右交错）
     var cityXPercents = [0.30, 0.65, 0.35, 0.68, 0.28, 0.70, 0.32, 0.66];
     // 花朵容器高度 130px，花朵中心大致在 top + 65
