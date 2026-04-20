@@ -63,6 +63,7 @@
     setupIntroVideo();
     setupBgVideo();
     setupScrollDownBtn();
+    setupPetalRainGuideOnBottom();
     setupMapHint();
   }
 
@@ -999,9 +1000,12 @@
   // ==========================================
   // 花瓣雨引导区
   // ==========================================
+  var petalRainGuideShown = false;
   function showPetalRainGuide() {
     var guide = document.getElementById('petal-rain-guide');
     if (!guide) return;
+    if (petalRainGuideShown) return;
+    petalRainGuideShown = true;
     guide.style.display = '';
     guide.offsetHeight;
     guide.classList.add('visible');
@@ -1392,6 +1396,25 @@
         if (!shown) { btn.classList.remove('hidden'); btn.classList.add('visible'); shown = true; }
       }
     }, { passive: true });
+  }
+
+  // ==========================================
+  // 滚到底部自动展示"此时此地"花瓣雨引导区
+  // 兜底：用户翻得快、城市花朵未全部绽放时，也能看到 AR 入口
+  // ==========================================
+  function setupPetalRainGuideOnBottom() {
+    function check() {
+      if (state.introVisible) return;
+      if (petalRainGuideShown) return;
+      var scrollY = window.pageYOffset || document.documentElement.scrollTop;
+      var docH = document.documentElement.scrollHeight;
+      var vh = window.innerHeight;
+      if (scrollY + vh >= docH - 100) {
+        showPetalRainGuide();
+      }
+    }
+    window.addEventListener('scroll', check, { passive: true });
+    window.addEventListener('resize', check, { passive: true });
   }
 
   // ==========================================
