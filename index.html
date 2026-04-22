@@ -12,6 +12,18 @@
   <meta property="og:description" content="开启摄像头，沉浸在漫天花瓣之中。转动设备，感受360° 环绕花海。">
   <meta property="og:image" content="https://mat1.gtimg.com/qqcdn/redian/petals_fall/share.png">
   <meta property="og:url" content="https://h5.news.qq.com/qqfile/redian/petals_fall.html">
+  <!-- 破缓存：微信 WebView 会强缓存 html/js，以 URL 粒度为单位；
+       无参数进入时自动追加 ?_t=时间戳 替换当前地址（不产生历史记录），
+       保证每次打开都是新 URL，绕过微信缓存 -->
+  <script>
+  (function(){
+    try {
+      if (!location.search) {
+        location.replace(location.pathname + '?_t=' + Date.now() + (location.hash || ''));
+      }
+    } catch(e) {}
+  })();
+  </script>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -403,7 +415,8 @@
   })();
   </script>
 
-  <!-- 微信保存修复补丁（内联，不受JS缓存影响）-->
+  <!-- 保留：录像格式 MP4 兼容性检查（非保存 UI 相关）-->
+  <!-- 保存 UI 已由 js/capture.js 内的新版极简模式处理（blob→dataURL + 全屏图片 + 右上角小×） -->
   <script>
   (function() {
     var patchTimer = setInterval(function() {
@@ -411,100 +424,7 @@
       clearInterval(patchTimer);
       var proto = CaptureManager.prototype;
 
-      // === 修复1: 微信图片保存 — 全屏展示 + 长按/截屏保存 ===
-      // 微信 WebView 限制：imagePreview 黑屏、navigator.share 弹分享选择器、<a download> 被拦截
-      // 最可靠方案：全屏展示 data URL 图片 → 用户长按保存或截屏
-      proto._saveInWechat = function(blob, filename, isImage, done) {
-        var self = this;
-        var finish = function() { if (done) done(); };
-        if (isImage) {
-          var img = new Image();
-          var blobUrl = URL.createObjectURL(blob);
-          img.onload = function() {
-            URL.revokeObjectURL(blobUrl);
-            var maxW = 1080;
-            var w = img.naturalWidth, h = img.naturalHeight;
-            if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
-            var c = document.createElement('canvas');
-            c.width = w; c.height = h;
-            c.getContext('2d').drawImage(img, 0, 0, w, h);
-            var dataUrl;
-            try { dataUrl = c.toDataURL('image/jpeg', 0.92); } catch(e) { dataUrl = ''; }
-            self._showScreenshotSave(dataUrl);
-            finish();
-          };
-          img.onerror = function() {
-            URL.revokeObjectURL(blobUrl);
-            self._showToast('图片加载失败');
-            finish();
-          };
-          img.src = blobUrl;
-        } else {
-          self._showWechatVideoSave(blob, filename, finish);
-        }
-      };
-
-      // 全屏截屏保存界面 — 用 data URL 展示图片，提示长按保存或截屏
-      proto._showScreenshotSave = function(imgSrc) {
-        var old = document.getElementById('poster-overlay-wx');
-        if (old) old.remove();
-
-        var overlay = document.createElement('div');
-        overlay.id = 'poster-overlay-wx';
-        overlay.style.cssText = 'position:fixed;inset:0;z-index:999999;background:#000;display:flex;align-items:center;justify-content:center;';
-
-        // 用 data URL 展示图片（微信对 data URL img 长按保存的支持优于 blob URL）
-        var img = document.createElement('img');
-        img.style.cssText = 'width:100%;height:100%;object-fit:contain;';
-        img.src = imgSrc;
-        overlay.appendChild(img);
-
-        // 提示浮层（初始隐藏，延迟显示，给用户纯净长按时间）
-        var tipOverlay = document.createElement('div');
-        tipOverlay.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:max(30px,env(safe-area-inset-bottom));opacity:0;transition:opacity 0.5s;pointer-events:none;';
-        tipOverlay.innerHTML =
-          '<p style="color:#ffd43b;font-size:16px;font-weight:bold;text-shadow:0 1px 8px rgba(0,0,0,0.8);margin-bottom:12px;">长按上方图片可保存，或截屏保存</p>' +
-          '<button class="__close" style="pointer-events:auto;padding:10px 32px;background:rgba(0,0,0,0.5);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:25px;font-size:14px;backdrop-filter:blur(4px);">关闭</button>';
-        overlay.appendChild(tipOverlay);
-        document.body.appendChild(overlay);
-
-        // 3秒后显示提示（给用户纯净的长按保存时间）
-        setTimeout(function() {
-          tipOverlay.style.opacity = '1';
-          tipOverlay.style.pointerEvents = 'auto';
-        }, 3000);
-
-        tipOverlay.querySelector('.__close').onclick = function() { overlay.remove(); };
-      };
-
-      // === 修复3: 微信视频保存 ===
-      proto._showWechatVideoSave = function(blob, filename, onDone) {
-        this._showWechatVideoPreview(blob, filename, onDone);
-      };
-      proto._showWechatVideoPreview = function(blob, filename, onDone) {
-        var finish = function() { if (onDone) onDone(); };
-        var old = document.getElementById('save-preview-overlay');
-        if (old) old.remove();
-        var blobUrl = URL.createObjectURL(blob);
-        var posterSrc = this._lastFramePoster || '';
-        var overlay = document.createElement('div');
-        overlay.id = 'save-preview-overlay';
-        overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.96);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;';
-        overlay.innerHTML = '<video style="max-width:92%;max-height:45vh;border-radius:8px;background:#000;" autoplay loop playsinline webkit-playsinline controls ' + (posterSrc ? 'poster="' + posterSrc + '"' : '') + '></video>' +
-          '<div style="background:rgba(255,200,50,0.15);border:1px solid rgba(255,200,50,0.4);border-radius:12px;padding:14px 20px;margin-top:16px;text-align:center;max-width:90%;"><p style="color:#ffd43b;font-size:15px;margin:0;line-height:1.8;font-weight:600;">微信内无法直接保存视频<br>请点击右上角 <span style="font-size:18px;">···</span> → <b>用浏览器打开</b></p></div>' +
-          '<div style="margin-top:16px;"><button class="sv-close" style="padding:12px 28px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:25px;font-size:15px;">关闭</button></div>';
-        document.body.appendChild(overlay);
-        var video = overlay.querySelector('video');
-        video.src = blobUrl;
-        video.play().catch(function(){});
-        overlay.querySelector('.sv-close').addEventListener('click', function() {
-          video.pause(); video.src = '';
-          overlay.remove(); URL.revokeObjectURL(blobUrl);
-          finish();
-        });
-      };
-
-      // === 修复4: 录像格式 — 仅允许 MP4 ===
+      // 录像格式 — 仅允许 MP4
       var origStartRecording = proto.startRecording;
       proto.startRecording = function() {
         var mp4Supported = false;
@@ -518,7 +438,7 @@
         origStartRecording.call(this);
       };
 
-      console.log('[补丁] 微信保存修复已加载 v5');
+      console.log('[补丁] MP4 录像兼容性检查已加载');
     }, 100);
   })();
   </script>

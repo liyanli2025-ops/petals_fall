@@ -2,6 +2,10 @@
  * 拍照 & 录像模块
  * 将摄像头画面 + 花瓣各层合成到离屏 canvas，支持截图保存和视频录制
  */
+// 版本标识，用于排查线上是否加载了最新版本（出现在 console 和 window 上）
+window.__CAPTURE_VERSION__ = 'v2026-04-22-clean-save';
+console.log('[CaptureManager] version:', window.__CAPTURE_VERSION__);
+
 class CaptureManager {
   constructor() {
     this.compositeCanvas = document.createElement('canvas');
@@ -951,8 +955,18 @@ class CaptureManager {
     // 这里是 fallback：直接弹截屏保存界面
     const finish = () => { if (done) done(); };
     if (isImage) {
-      this._showScreenshotSave(blob);
-      finish();
+      // iOS 微信对 blob URL 长按不能保存，必须先转 data URL
+      const reader = new FileReader();
+      reader.onload = () => {
+        this._showScreenshotSave(reader.result);
+        finish();
+      };
+      reader.onerror = () => {
+        // 转换失败兜底：直接传 blob
+        this._showScreenshotSave(blob);
+        finish();
+      };
+      reader.readAsDataURL(blob);
     } else {
       this._showWechatVideoSave(blob, filename, finish);
     }
@@ -960,6 +974,8 @@ class CaptureManager {
 
   /**
    * 截屏保存界面（微信内终极兜底）
+   * 极简模式：全屏图片，仅右上角一个关闭按钮，无底部压照片的提示条。
+   * 用户可长按图片保存到相册（data URL 下 iOS 微信支持）或直接截屏。
    * @param {Blob|string} blobOrUrl - 可以是 Blob 对象、blob URL 字符串或 data URL 字符串
    */
   _showScreenshotSave(blobOrUrl) {
@@ -976,56 +992,87 @@ class CaptureManager {
       needRevoke = true;
     }
 
+    // 外层：纯黑背景，图片居中全屏，无底部 UI 条
     const overlay = document.createElement('div');
     overlay.id = 'poster-overlay-wx';
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:999999;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;';
+    overlay.style.cssText = [
+      'position:fixed', 'inset:0', 'z-index:999999',
+      'background:#000',
+      'display:flex', 'align-items:center', 'justify-content:center',
+      'padding-top:env(safe-area-inset-top, 0px)',
+      'padding-bottom:env(safe-area-inset-bottom, 0px)'
+    ].join(';');
 
+    // 图片：允许长按保存（保留系统默认的 touchCallout）
     const img = document.createElement('img');
-    img.style.cssText = 'max-width:100%;max-height:78vh;object-fit:contain;';
+    img.setAttribute('draggable', 'false');
+    img.style.cssText = [
+      'max-width:100%', 'max-height:100%',
+      'object-fit:contain',
+      'display:block',
+      'touch-action:auto',
+      '-webkit-touch-callout:default',
+      '-webkit-user-select:auto',
+      'user-select:auto'
+    ].join(';');
     img.src = imgSrc;
     overlay.appendChild(img);
 
-    // 微信环境下尝试 WeixinJSBridge imagePreview（对 data URL 部分版本可行）
-    const isDataUrl = typeof blobOrUrl === 'string' && blobOrUrl.startsWith('data:');
-    const isWx = /MicroMessenger/i.test(navigator.userAgent);
+    // 右上角极简关闭按钮（圆形 ×），不压在图片主体上
+    const closeBtn = document.createElement('button');
+    closeBtn.setAttribute('aria-label', '关闭');
+    closeBtn.innerHTML = '&times;';
+    closeBtn.style.cssText = [
+      'position:absolute',
+      'top:calc(14px + env(safe-area-inset-top, 0px))',
+      'right:14px',
+      'width:36px', 'height:36px',
+      'border-radius:50%',
+      'background:rgba(0,0,0,0.45)',
+      'color:#fff',
+      'border:1px solid rgba(255,255,255,0.25)',
+      'font-size:22px', 'line-height:1',
+      'display:flex', 'align-items:center', 'justify-content:center',
+      'cursor:pointer',
+      'backdrop-filter:blur(6px)',
+      '-webkit-backdrop-filter:blur(6px)',
+      'z-index:2',
+      'padding:0'
+    ].join(';');
+    overlay.appendChild(closeBtn);
 
-    const bottomBar = document.createElement('div');
-    bottomBar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,0.9));padding:20px 16px 30px;text-align:center;';
-    bottomBar.innerHTML =
-      '<p style="color:#ffd43b;font-size:17px;font-weight:bold;margin-bottom:12px;">长按图片保存，或截屏保存</p>' +
-      '<div style="display:flex;justify-content:center;gap:12px;">' +
-        (isWx && isDataUrl ? '<button id="wx-try-save-btn" style="padding:12px 28px;background:rgba(76,175,80,0.8);color:#fff;border:none;border-radius:25px;font-size:15px;">尝试保存到相册</button>' : '') +
-        '<button id="wx-close-btn" style="padding:12px 28px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:25px;font-size:15px;">关闭</button>' +
-      '</div>';
-    overlay.appendChild(bottomBar);
+    // 首次打开时给一个短暂 toast 提示用户"长按保存"，1.6s 自动消失（不会入画）
+    const toast = document.createElement('div');
+    toast.textContent = '长按图片可保存到相册';
+    toast.style.cssText = [
+      'position:absolute',
+      'top:calc(14px + env(safe-area-inset-top, 0px))',
+      'left:50%', 'transform:translateX(-50%)',
+      'color:rgba(255,255,255,0.9)',
+      'background:rgba(0,0,0,0.5)',
+      'padding:8px 16px',
+      'border-radius:18px',
+      'font-size:13px',
+      'backdrop-filter:blur(6px)',
+      '-webkit-backdrop-filter:blur(6px)',
+      'z-index:2',
+      'opacity:1',
+      'transition:opacity .4s ease',
+      'pointer-events:none'
+    ].join(';');
+    overlay.appendChild(toast);
+    setTimeout(() => { toast.style.opacity = '0'; }, 1400);
+    setTimeout(() => { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 1900);
 
     document.body.appendChild(overlay);
 
-    // 关闭按钮
-    bottomBar.querySelector('#wx-close-btn').addEventListener('click', () => {
+    // 关闭
+    const doClose = () => {
       overlay.remove();
       if (needRevoke) URL.revokeObjectURL(imgSrc);
-    });
-
-    // 微信环境下的"尝试保存到相册"按钮
-    const trySaveBtn = bottomBar.querySelector('#wx-try-save-btn');
-    if (trySaveBtn) {
-      trySaveBtn.addEventListener('click', () => {
-        // 尝试 <a download>
-        try {
-          var a = document.createElement('a');
-          a.href = imgSrc;
-          a.download = 'flower_photo.jpg';
-          a.style.display = 'none';
-          document.body.appendChild(a);
-          a.click();
-          setTimeout(function() { document.body.removeChild(a); }, 200);
-        } catch(e) {
-          console.warn('[微信保存] a.download 失败:', e);
-        }
-        this._showToast('如保存失败，请长按图片或截屏保存');
-      });
-    }
+    };
+    closeBtn.addEventListener('click', doClose);
+    closeBtn.addEventListener('touchend', (e) => { e.preventDefault(); doClose(); });
   }
 
   /**
@@ -1147,17 +1194,20 @@ class CaptureManager {
       // 图片：同时转 base64（长按保存用）并提供 <a download> 按钮
       overlay.innerHTML = `
         <img class="webview-save-img" style="max-width:94%;max-height:62vh;border-radius:10px;object-fit:contain;touch-action:auto;-webkit-touch-callout:default;-webkit-user-select:auto;user-select:auto;" />
-        <div style="display:flex;gap:12px;margin-top:20px;">
-          <a class="webview-download-btn" download="${filename}" style="display:inline-flex;align-items:center;gap:6px;padding:12px 28px;background:rgba(255,255,255,0.95);color:#333;border:none;border-radius:25px;font-size:15px;font-weight:500;text-decoration:none;cursor:pointer;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            保存图片
-          </a>
-          <button class="save-preview-close" style="padding:12px 28px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:25px;font-size:15px;">关闭</button>
+        <div class="webview-save-ui" data-capture-hide="1" style="transition:opacity .2s ease;">
+          <div style="display:flex;gap:12px;margin-top:20px;justify-content:center;flex-wrap:wrap;">
+            <a class="webview-download-btn" download="${filename}" style="display:inline-flex;align-items:center;gap:6px;padding:12px 28px;background:rgba(255,255,255,0.95);color:#333;border:none;border-radius:25px;font-size:15px;font-weight:500;text-decoration:none;cursor:pointer;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              保存图片
+            </a>
+            <button class="webview-clean-btn" style="padding:12px 22px;background:rgba(255,255,255,0.18);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:25px;font-size:14px;">纯净截屏</button>
+            <button class="save-preview-close" style="padding:12px 22px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:25px;font-size:14px;">关闭</button>
+          </div>
+          <p style="color:rgba(255,255,255,0.6);font-size:12px;margin-top:14px;text-align:center;line-height:1.8;">
+            点击保存按钮 或 长按图片保存<br>
+            若均无效，可点右上角 <b style="color:rgba(255,255,255,0.8)">···</b> → <b style="color:rgba(255,255,255,0.8)">用浏览器打开</b>
+          </p>
         </div>
-        <p style="color:rgba(255,255,255,0.6);font-size:12px;margin-top:14px;text-align:center;line-height:1.8;">
-          点击保存按钮 或 长按图片保存<br>
-          若均无效，可点右上角 <b style="color:rgba(255,255,255,0.8)">···</b> → <b style="color:rgba(255,255,255,0.8)">用浏览器打开</b>
-        </p>
       `;
       document.body.appendChild(overlay);
 
@@ -1171,6 +1221,26 @@ class CaptureManager {
       const reader = new FileReader();
       reader.onload = () => { img.src = reader.result; };
       reader.readAsDataURL(blob);
+
+      // 纯净截屏
+      const cleanBtn = overlay.querySelector('.webview-clean-btn');
+      const uiBar = overlay.querySelector('.webview-save-ui');
+      if (cleanBtn && uiBar) {
+        cleanBtn.addEventListener('click', () => {
+          uiBar.style.opacity = '0';
+          uiBar.style.pointerEvents = 'none';
+          const hint = document.createElement('div');
+          hint.textContent = '现在截屏';
+          hint.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);color:rgba(255,255,255,0.85);font-size:15px;background:rgba(0,0,0,0.5);padding:8px 18px;border-radius:20px;z-index:1000000;pointer-events:none;transition:opacity .3s ease;';
+          overlay.appendChild(hint);
+          setTimeout(() => { hint.style.opacity = '0'; }, 400);
+          setTimeout(() => { if (hint.parentNode) hint.parentNode.removeChild(hint); }, 800);
+          setTimeout(() => {
+            uiBar.style.opacity = '';
+            uiBar.style.pointerEvents = '';
+          }, 3000);
+        });
+      }
     } else {
       // 视频（不太会走到这里，但保留兜底）
       this._showSavePreview(blob, false);
@@ -1263,17 +1333,31 @@ class CaptureManager {
 
     const overlay = document.createElement('div');
     overlay.id = 'save-preview-overlay';
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.95);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;';
+    overlay.style.cssText = [
+      'position:fixed', 'inset:0', 'z-index:99999',
+      'background:rgba(0,0,0,0.95)',
+      'display:flex', 'flex-direction:column', 'align-items:stretch',
+      'padding-top:max(16px, env(safe-area-inset-top, 0px))',
+      'padding-bottom:env(safe-area-inset-bottom, 0px)'
+    ].join(';');
 
     // blob URL 用于视频播放和下载按钮
     let blobUrl = null;
 
     if (isImage) {
       // 图片：用 base64 Data URL，安卓 WebView 才支持长按保存
+      // 布局：图片区 flex:1 居中自适应 + UI 区在下方，不相互重叠
       overlay.innerHTML = `
-        <p style="color:#fff;font-size:14px;margin-bottom:16px;text-align:center;line-height:1.7;opacity:0.85;">长按图片保存到相册</p>
-        <img style="max-width:92%;max-height:70vh;border-radius:8px;object-fit:contain;touch-action:auto;-webkit-touch-callout:default;-webkit-user-select:auto;user-select:auto;" />
-        <button class="save-preview-close" style="margin-top:24px;padding:12px 48px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:25px;font-size:15px;">关闭</button>
+        <div class="save-img-wrap" style="flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;padding:8px 12px;">
+          <img style="max-width:100%;max-height:100%;border-radius:8px;object-fit:contain;touch-action:auto;-webkit-touch-callout:default;-webkit-user-select:auto;user-select:auto;display:block;" />
+        </div>
+        <div class="save-ui-bar" data-capture-hide="1" style="flex:0 0 auto;padding:14px 16px 18px;text-align:center;transition:opacity .2s ease;">
+          <p style="color:rgba(255,255,255,0.9);font-size:14px;margin:0 0 10px;line-height:1.6;">长按图片保存到相册</p>
+          <div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap;">
+            <button class="save-preview-clean" style="padding:10px 22px;background:rgba(255,255,255,0.18);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:22px;font-size:14px;">纯净截屏</button>
+            <button class="save-preview-close" style="padding:10px 22px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:22px;font-size:14px;">关闭</button>
+          </div>
+        </div>
       `;
       document.body.appendChild(overlay);
 
@@ -1283,11 +1367,35 @@ class CaptureManager {
         overlay.querySelector('img').src = reader.result;
       };
       reader.readAsDataURL(blob);
+
+      // 纯净截屏：隐藏 UI 条 3 秒，期间用户可以自由截屏，截完 UI 条自动恢复
+      const cleanBtn = overlay.querySelector('.save-preview-clean');
+      const uiBar = overlay.querySelector('.save-ui-bar');
+      if (cleanBtn && uiBar) {
+        cleanBtn.addEventListener('click', () => {
+          uiBar.style.opacity = '0';
+          uiBar.style.pointerEvents = 'none';
+          const hint = document.createElement('div');
+          hint.textContent = '现在截屏';
+          hint.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);color:rgba(255,255,255,0.85);font-size:15px;background:rgba(0,0,0,0.5);padding:8px 18px;border-radius:20px;z-index:1000000;pointer-events:none;transition:opacity .3s ease;';
+          overlay.appendChild(hint);
+          setTimeout(() => { hint.style.opacity = '0'; }, 400);
+          setTimeout(() => { if (hint.parentNode) hint.parentNode.removeChild(hint); }, 800);
+          setTimeout(() => {
+            uiBar.style.opacity = '';
+            uiBar.style.pointerEvents = '';
+          }, 3000);
+        });
+      }
     } else {
       // 视频：播放预览 + 下载按钮 + 长按提示
       blobUrl = URL.createObjectURL(blob);
       const ext = (blob.type || '').includes('webm') ? 'webm' : 'mp4';
       const filename = 'petals_' + Date.now() + '.' + ext;
+      // 视频布局也恢复居中 flex（保留原行为）
+      overlay.style.justifyContent = 'center';
+      overlay.style.alignItems = 'center';
+      overlay.style.padding = '20px';
       overlay.innerHTML = `
         <video style="max-width:92%;max-height:50vh;border-radius:8px;background:#000;touch-action:auto;" autoplay loop playsinline webkit-playsinline controls></video>
         <div style="display:flex;gap:12px;margin-top:20px;">
