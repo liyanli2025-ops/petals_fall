@@ -12,6 +12,22 @@
   <meta property="og:image" content="">
   <meta property="og:url" content="">
   <meta name="theme-color" content="#fdf6e3" id="theme-color-meta">
+  <!-- 破缓存：微信 WebView 会强缓存 html/js，以 URL 粒度为单位；
+       无参数进入时自动追加 ?_t=时间戳 替换当前地址（不产生历史记录），
+       保证每次打开都是新 URL，绕过微信缓存 -->
+  <script>
+  (function(){
+    try {
+      var s = location.search || '';
+      // 只在没有任何查询参数时追加，避免循环
+      if (!s) {
+        var sep = '?';
+        var newUrl = location.pathname + sep + '_t=' + Date.now() + (location.hash || '');
+        location.replace(newUrl);
+      }
+    } catch(e) {}
+  })();
+  </script>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
