@@ -2,6 +2,10 @@
  * 拍照 & 录像模块
  * 将摄像头画面 + 花瓣各层合成到离屏 canvas，支持截图保存和视频录制
  */
+// 版本标识，用于排查线上是否加载了最新版本（出现在 console 和 window 上）
+window.__CAPTURE_VERSION__ = 'v2026-04-22-clean-save';
+console.log('[CaptureManager] version:', window.__CAPTURE_VERSION__);
+
 class CaptureManager {
   constructor() {
     this.compositeCanvas = document.createElement('canvas');
@@ -951,8 +955,18 @@ class CaptureManager {
     // 这里是 fallback：直接弹截屏保存界面
     const finish = () => { if (done) done(); };
     if (isImage) {
-      this._showScreenshotSave(blob);
-      finish();
+      // iOS 微信对 blob URL 长按不能保存，必须先转 data URL
+      const reader = new FileReader();
+      reader.onload = () => {
+        this._showScreenshotSave(reader.result);
+        finish();
+      };
+      reader.onerror = () => {
+        // 转换失败兜底：直接传 blob
+        this._showScreenshotSave(blob);
+        finish();
+      };
+      reader.readAsDataURL(blob);
     } else {
       this._showWechatVideoSave(blob, filename, finish);
     }
@@ -960,6 +974,8 @@ class CaptureManager {
 
   /**
    * 截屏保存界面（微信内终极兜底）
+   * 极简模式：全屏图片，仅右上角一个关闭按钮，无底部压照片的提示条。
+   * 用户可长按图片保存到相册（data URL 下 iOS 微信支持）或直接截屏。
    * @param {Blob|string} blobOrUrl - 可以是 Blob 对象、blob URL 字符串或 data URL 字符串
    */
   _showScreenshotSave(blobOrUrl) {
@@ -976,100 +992,87 @@ class CaptureManager {
       needRevoke = true;
     }
 
-    const isDataUrl = typeof blobOrUrl === 'string' && blobOrUrl.startsWith('data:');
-    const isWx = /MicroMessenger/i.test(navigator.userAgent);
-
-    // 外层：竖向 flex，图片在中间自适应，UI 区在底部；
-    // 图片 flex:1 + min-height:0，不会被 UI 区覆盖
+    // 外层：纯黑背景，图片居中全屏，无底部 UI 条
     const overlay = document.createElement('div');
     overlay.id = 'poster-overlay-wx';
     overlay.style.cssText = [
       'position:fixed', 'inset:0', 'z-index:999999',
       'background:#000',
-      'display:flex', 'flex-direction:column', 'align-items:stretch',
-      'padding-top:max(16px, env(safe-area-inset-top, 0px))',
+      'display:flex', 'align-items:center', 'justify-content:center',
+      'padding-top:env(safe-area-inset-top, 0px)',
       'padding-bottom:env(safe-area-inset-bottom, 0px)'
     ].join(';');
 
-    // 图片区：flex:1，居中显示，不与 UI 区重叠
-    const imgWrap = document.createElement('div');
-    imgWrap.style.cssText = 'flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;padding:8px 12px;';
-
+    // 图片：允许长按保存（保留系统默认的 touchCallout）
     const img = document.createElement('img');
-    img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;display:block;';
-    img.src = imgSrc;
-    imgWrap.appendChild(img);
-    overlay.appendChild(imgWrap);
-
-    // UI 区：非覆盖式，和图片区分开。截屏前可整体隐藏，避免提示文字入画
-    const uiBar = document.createElement('div');
-    uiBar.id = 'poster-ui-bar';
-    uiBar.setAttribute('data-capture-hide', '1');
-    uiBar.style.cssText = [
-      'flex:0 0 auto',
-      'background:linear-gradient(transparent, rgba(0,0,0,0.85) 40%)',
-      'padding:16px 16px 20px',
-      'text-align:center',
-      'transition:opacity .2s ease'
+    img.setAttribute('draggable', 'false');
+    img.style.cssText = [
+      'max-width:100%', 'max-height:100%',
+      'object-fit:contain',
+      'display:block',
+      'touch-action:auto',
+      '-webkit-touch-callout:default',
+      '-webkit-user-select:auto',
+      'user-select:auto'
     ].join(';');
-    uiBar.innerHTML =
-      '<p style="color:#ffd43b;font-size:15px;font-weight:600;margin:0 0 10px;">长按图片保存，或点下方"纯净截屏"后截屏</p>' +
-      '<div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap;">' +
-        (isWx && isDataUrl ? '<button id="wx-try-save-btn" style="padding:10px 22px;background:rgba(76,175,80,0.85);color:#fff;border:none;border-radius:22px;font-size:14px;">尝试保存到相册</button>' : '') +
-        '<button id="wx-clean-btn" style="padding:10px 22px;background:rgba(255,255,255,0.18);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:22px;font-size:14px;">纯净截屏</button>' +
-        '<button id="wx-close-btn" style="padding:10px 22px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:22px;font-size:14px;">关闭</button>' +
-      '</div>';
-    overlay.appendChild(uiBar);
+    img.src = imgSrc;
+    overlay.appendChild(img);
+
+    // 右上角极简关闭按钮（圆形 ×），不压在图片主体上
+    const closeBtn = document.createElement('button');
+    closeBtn.setAttribute('aria-label', '关闭');
+    closeBtn.innerHTML = '&times;';
+    closeBtn.style.cssText = [
+      'position:absolute',
+      'top:calc(14px + env(safe-area-inset-top, 0px))',
+      'right:14px',
+      'width:36px', 'height:36px',
+      'border-radius:50%',
+      'background:rgba(0,0,0,0.45)',
+      'color:#fff',
+      'border:1px solid rgba(255,255,255,0.25)',
+      'font-size:22px', 'line-height:1',
+      'display:flex', 'align-items:center', 'justify-content:center',
+      'cursor:pointer',
+      'backdrop-filter:blur(6px)',
+      '-webkit-backdrop-filter:blur(6px)',
+      'z-index:2',
+      'padding:0'
+    ].join(';');
+    overlay.appendChild(closeBtn);
+
+    // 首次打开时给一个短暂 toast 提示用户"长按保存"，1.6s 自动消失（不会入画）
+    const toast = document.createElement('div');
+    toast.textContent = '长按图片可保存到相册';
+    toast.style.cssText = [
+      'position:absolute',
+      'top:calc(14px + env(safe-area-inset-top, 0px))',
+      'left:50%', 'transform:translateX(-50%)',
+      'color:rgba(255,255,255,0.9)',
+      'background:rgba(0,0,0,0.5)',
+      'padding:8px 16px',
+      'border-radius:18px',
+      'font-size:13px',
+      'backdrop-filter:blur(6px)',
+      '-webkit-backdrop-filter:blur(6px)',
+      'z-index:2',
+      'opacity:1',
+      'transition:opacity .4s ease',
+      'pointer-events:none'
+    ].join(';');
+    overlay.appendChild(toast);
+    setTimeout(() => { toast.style.opacity = '0'; }, 1400);
+    setTimeout(() => { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 1900);
 
     document.body.appendChild(overlay);
 
-    // 关闭按钮
-    uiBar.querySelector('#wx-close-btn').addEventListener('click', () => {
+    // 关闭
+    const doClose = () => {
       overlay.remove();
       if (needRevoke) URL.revokeObjectURL(imgSrc);
-    });
-
-    // 纯净截屏：隐藏 UI 条 3 秒，期间用户可以自由截屏，截完 UI 条自动恢复
-    const cleanBtn = uiBar.querySelector('#wx-clean-btn');
-    if (cleanBtn) {
-      cleanBtn.addEventListener('click', () => {
-        // 先给个轻提示，然后隐藏全部 UI
-        uiBar.style.opacity = '0';
-        uiBar.style.pointerEvents = 'none';
-        // 屏幕中央短暂显示"现在截屏"提示，0.6s 后也消失，避免入画
-        const hint = document.createElement('div');
-        hint.textContent = '现在截屏';
-        hint.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);color:rgba(255,255,255,0.85);font-size:15px;background:rgba(0,0,0,0.5);padding:8px 18px;border-radius:20px;z-index:1000000;pointer-events:none;transition:opacity .3s ease;';
-        overlay.appendChild(hint);
-        setTimeout(() => { hint.style.opacity = '0'; }, 400);
-        setTimeout(() => { if (hint.parentNode) hint.parentNode.removeChild(hint); }, 800);
-        // 3 秒后恢复 UI
-        setTimeout(() => {
-          uiBar.style.opacity = '';
-          uiBar.style.pointerEvents = '';
-        }, 3000);
-      });
-    }
-
-    // 微信环境下的"尝试保存到相册"按钮
-    const trySaveBtn = uiBar.querySelector('#wx-try-save-btn');
-    if (trySaveBtn) {
-      trySaveBtn.addEventListener('click', () => {
-        // 尝试 <a download>
-        try {
-          var a = document.createElement('a');
-          a.href = imgSrc;
-          a.download = 'flower_photo.jpg';
-          a.style.display = 'none';
-          document.body.appendChild(a);
-          a.click();
-          setTimeout(function() { document.body.removeChild(a); }, 200);
-        } catch(e) {
-          console.warn('[微信保存] a.download 失败:', e);
-        }
-        this._showToast('如保存失败，请长按图片或点"纯净截屏"后截屏');
-      });
-    }
+    };
+    closeBtn.addEventListener('click', doClose);
+    closeBtn.addEventListener('touchend', (e) => { e.preventDefault(); doClose(); });
   }
 
   /**
