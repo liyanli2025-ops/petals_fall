@@ -69,6 +69,10 @@
 
   // ==========================================
   // 开屏视频自动播放（微信兼容）
+  // 策略：默认隐藏视频、只显示静态图；
+  //       只有当视频"确实开始播放"时，才把视频显示出来、隐藏静态图。
+  //       这样能播视频的机型直接播视频，不能播的始终看静态图，
+  //       避免"静态图 → 视频"中间出现的放大/切换动画。
   // ==========================================
   function setupIntroVideo() {
     var video = document.querySelector('.intro-video');
@@ -78,7 +82,10 @@
     var played = false;
     function onPlaying() {
       if (played) return;
+      // 仅在视频确实产生了画面时才切换（currentTime>0 说明已渲染首帧）
+      if (video.currentTime <= 0) return;
       played = true;
+      video.classList.add('is-playing');
       if (fallback) fallback.style.display = 'none';
     }
 
@@ -86,7 +93,11 @@
       if (!video || !video.paused) return;
       video.muted = true;
       var p = video.play();
-      if (p && p.then) p.then(onPlaying).catch(function(){});
+      if (p && p.then) p.then(function() {
+        // play() resolve 并不代表已出画，等 timeupdate / playing 再切显示
+      }).catch(function() {
+        // 自动播放被拒绝：保持静态图，不做任何切换
+      });
     }
 
     video.addEventListener('playing', onPlaying);
@@ -117,22 +128,17 @@
     var retryTimer = setInterval(function() {
       retryCount++;
       tryPlay();
-      if (!video.paused || retryCount >= 6) clearInterval(retryTimer);
+      if (played || retryCount >= 6) clearInterval(retryTimer);
     }, 500);
 
-    // 触摸兜底
+    // 触摸兜底（不触发时保持静态图显示）
     document.addEventListener('touchstart', function ts() {
       tryPlay();
       document.removeEventListener('touchstart', ts);
     }, { once: true, passive: true });
 
-    // 5秒超时切静态图
-    setTimeout(function() {
-      if (!played && video) {
-        video.style.display = 'none';
-        if (fallback) fallback.style.display = '';
-      }
-    }, 5000);
+    // 注意：不再做"5秒超时把视频隐藏"的 fallback —— 视频默认就是隐藏的，
+    // 只有真的开始播才会显示，所以无需兜底切换。
   }
 
   // ==========================================

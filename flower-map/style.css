@@ -76,7 +76,9 @@ body {
   pointer-events: none;
 }
 
-/* 视频背景 — 覆盖全屏 */
+/* 视频背景 — 覆盖全屏
+   默认隐藏，只有在真的能自动播放时才由 JS 显示出来，
+   避免"静态图 → 视频"二次切换产生的放大/抖动感 */
 .intro-video {
   position: absolute;
   inset: 0;
@@ -84,8 +86,14 @@ body {
   height: 100%;
   object-fit: cover;
   z-index: 1;
-  transform: scale(1.1);
+  /* 与 .intro-bg 保持同样的 scale，避免显示瞬间出现缩放切换 */
+  transform: scale(1.25);
   transform-origin: center center;
+  display: none;
+}
+
+.intro-video.is-playing {
+  display: block;
 }
 
 /* 兜底静态图 */
