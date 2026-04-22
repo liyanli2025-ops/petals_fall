@@ -976,39 +976,83 @@ class CaptureManager {
       needRevoke = true;
     }
 
-    const overlay = document.createElement('div');
-    overlay.id = 'poster-overlay-wx';
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:999999;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;';
-
-    const img = document.createElement('img');
-    img.style.cssText = 'max-width:100%;max-height:78vh;object-fit:contain;';
-    img.src = imgSrc;
-    overlay.appendChild(img);
-
-    // 微信环境下尝试 WeixinJSBridge imagePreview（对 data URL 部分版本可行）
     const isDataUrl = typeof blobOrUrl === 'string' && blobOrUrl.startsWith('data:');
     const isWx = /MicroMessenger/i.test(navigator.userAgent);
 
-    const bottomBar = document.createElement('div');
-    bottomBar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,0.9));padding:20px 16px 30px;text-align:center;';
-    bottomBar.innerHTML =
-      '<p style="color:#ffd43b;font-size:17px;font-weight:bold;margin-bottom:12px;">长按图片保存，或截屏保存</p>' +
-      '<div style="display:flex;justify-content:center;gap:12px;">' +
-        (isWx && isDataUrl ? '<button id="wx-try-save-btn" style="padding:12px 28px;background:rgba(76,175,80,0.8);color:#fff;border:none;border-radius:25px;font-size:15px;">尝试保存到相册</button>' : '') +
-        '<button id="wx-close-btn" style="padding:12px 28px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:25px;font-size:15px;">关闭</button>' +
+    // 外层：竖向 flex，图片在中间自适应，UI 区在底部；
+    // 图片 flex:1 + min-height:0，不会被 UI 区覆盖
+    const overlay = document.createElement('div');
+    overlay.id = 'poster-overlay-wx';
+    overlay.style.cssText = [
+      'position:fixed', 'inset:0', 'z-index:999999',
+      'background:#000',
+      'display:flex', 'flex-direction:column', 'align-items:stretch',
+      'padding-top:max(16px, env(safe-area-inset-top, 0px))',
+      'padding-bottom:env(safe-area-inset-bottom, 0px)'
+    ].join(';');
+
+    // 图片区：flex:1，居中显示，不与 UI 区重叠
+    const imgWrap = document.createElement('div');
+    imgWrap.style.cssText = 'flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;padding:8px 12px;';
+
+    const img = document.createElement('img');
+    img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;display:block;';
+    img.src = imgSrc;
+    imgWrap.appendChild(img);
+    overlay.appendChild(imgWrap);
+
+    // UI 区：非覆盖式，和图片区分开。截屏前可整体隐藏，避免提示文字入画
+    const uiBar = document.createElement('div');
+    uiBar.id = 'poster-ui-bar';
+    uiBar.setAttribute('data-capture-hide', '1');
+    uiBar.style.cssText = [
+      'flex:0 0 auto',
+      'background:linear-gradient(transparent, rgba(0,0,0,0.85) 40%)',
+      'padding:16px 16px 20px',
+      'text-align:center',
+      'transition:opacity .2s ease'
+    ].join(';');
+    uiBar.innerHTML =
+      '<p style="color:#ffd43b;font-size:15px;font-weight:600;margin:0 0 10px;">长按图片保存，或点下方"纯净截屏"后截屏</p>' +
+      '<div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap;">' +
+        (isWx && isDataUrl ? '<button id="wx-try-save-btn" style="padding:10px 22px;background:rgba(76,175,80,0.85);color:#fff;border:none;border-radius:22px;font-size:14px;">尝试保存到相册</button>' : '') +
+        '<button id="wx-clean-btn" style="padding:10px 22px;background:rgba(255,255,255,0.18);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:22px;font-size:14px;">纯净截屏</button>' +
+        '<button id="wx-close-btn" style="padding:10px 22px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:22px;font-size:14px;">关闭</button>' +
       '</div>';
-    overlay.appendChild(bottomBar);
+    overlay.appendChild(uiBar);
 
     document.body.appendChild(overlay);
 
     // 关闭按钮
-    bottomBar.querySelector('#wx-close-btn').addEventListener('click', () => {
+    uiBar.querySelector('#wx-close-btn').addEventListener('click', () => {
       overlay.remove();
       if (needRevoke) URL.revokeObjectURL(imgSrc);
     });
 
+    // 纯净截屏：隐藏 UI 条 3 秒，期间用户可以自由截屏，截完 UI 条自动恢复
+    const cleanBtn = uiBar.querySelector('#wx-clean-btn');
+    if (cleanBtn) {
+      cleanBtn.addEventListener('click', () => {
+        // 先给个轻提示，然后隐藏全部 UI
+        uiBar.style.opacity = '0';
+        uiBar.style.pointerEvents = 'none';
+        // 屏幕中央短暂显示"现在截屏"提示，0.6s 后也消失，避免入画
+        const hint = document.createElement('div');
+        hint.textContent = '现在截屏';
+        hint.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);color:rgba(255,255,255,0.85);font-size:15px;background:rgba(0,0,0,0.5);padding:8px 18px;border-radius:20px;z-index:1000000;pointer-events:none;transition:opacity .3s ease;';
+        overlay.appendChild(hint);
+        setTimeout(() => { hint.style.opacity = '0'; }, 400);
+        setTimeout(() => { if (hint.parentNode) hint.parentNode.removeChild(hint); }, 800);
+        // 3 秒后恢复 UI
+        setTimeout(() => {
+          uiBar.style.opacity = '';
+          uiBar.style.pointerEvents = '';
+        }, 3000);
+      });
+    }
+
     // 微信环境下的"尝试保存到相册"按钮
-    const trySaveBtn = bottomBar.querySelector('#wx-try-save-btn');
+    const trySaveBtn = uiBar.querySelector('#wx-try-save-btn');
     if (trySaveBtn) {
       trySaveBtn.addEventListener('click', () => {
         // 尝试 <a download>
@@ -1023,7 +1067,7 @@ class CaptureManager {
         } catch(e) {
           console.warn('[微信保存] a.download 失败:', e);
         }
-        this._showToast('如保存失败，请长按图片或截屏保存');
+        this._showToast('如保存失败，请长按图片或点"纯净截屏"后截屏');
       });
     }
   }
@@ -1147,17 +1191,20 @@ class CaptureManager {
       // 图片：同时转 base64（长按保存用）并提供 <a download> 按钮
       overlay.innerHTML = `
         <img class="webview-save-img" style="max-width:94%;max-height:62vh;border-radius:10px;object-fit:contain;touch-action:auto;-webkit-touch-callout:default;-webkit-user-select:auto;user-select:auto;" />
-        <div style="display:flex;gap:12px;margin-top:20px;">
-          <a class="webview-download-btn" download="${filename}" style="display:inline-flex;align-items:center;gap:6px;padding:12px 28px;background:rgba(255,255,255,0.95);color:#333;border:none;border-radius:25px;font-size:15px;font-weight:500;text-decoration:none;cursor:pointer;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            保存图片
-          </a>
-          <button class="save-preview-close" style="padding:12px 28px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:25px;font-size:15px;">关闭</button>
+        <div class="webview-save-ui" data-capture-hide="1" style="transition:opacity .2s ease;">
+          <div style="display:flex;gap:12px;margin-top:20px;justify-content:center;flex-wrap:wrap;">
+            <a class="webview-download-btn" download="${filename}" style="display:inline-flex;align-items:center;gap:6px;padding:12px 28px;background:rgba(255,255,255,0.95);color:#333;border:none;border-radius:25px;font-size:15px;font-weight:500;text-decoration:none;cursor:pointer;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              保存图片
+            </a>
+            <button class="webview-clean-btn" style="padding:12px 22px;background:rgba(255,255,255,0.18);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:25px;font-size:14px;">纯净截屏</button>
+            <button class="save-preview-close" style="padding:12px 22px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:25px;font-size:14px;">关闭</button>
+          </div>
+          <p style="color:rgba(255,255,255,0.6);font-size:12px;margin-top:14px;text-align:center;line-height:1.8;">
+            点击保存按钮 或 长按图片保存<br>
+            若均无效，可点右上角 <b style="color:rgba(255,255,255,0.8)">···</b> → <b style="color:rgba(255,255,255,0.8)">用浏览器打开</b>
+          </p>
         </div>
-        <p style="color:rgba(255,255,255,0.6);font-size:12px;margin-top:14px;text-align:center;line-height:1.8;">
-          点击保存按钮 或 长按图片保存<br>
-          若均无效，可点右上角 <b style="color:rgba(255,255,255,0.8)">···</b> → <b style="color:rgba(255,255,255,0.8)">用浏览器打开</b>
-        </p>
       `;
       document.body.appendChild(overlay);
 
@@ -1171,6 +1218,26 @@ class CaptureManager {
       const reader = new FileReader();
       reader.onload = () => { img.src = reader.result; };
       reader.readAsDataURL(blob);
+
+      // 纯净截屏
+      const cleanBtn = overlay.querySelector('.webview-clean-btn');
+      const uiBar = overlay.querySelector('.webview-save-ui');
+      if (cleanBtn && uiBar) {
+        cleanBtn.addEventListener('click', () => {
+          uiBar.style.opacity = '0';
+          uiBar.style.pointerEvents = 'none';
+          const hint = document.createElement('div');
+          hint.textContent = '现在截屏';
+          hint.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);color:rgba(255,255,255,0.85);font-size:15px;background:rgba(0,0,0,0.5);padding:8px 18px;border-radius:20px;z-index:1000000;pointer-events:none;transition:opacity .3s ease;';
+          overlay.appendChild(hint);
+          setTimeout(() => { hint.style.opacity = '0'; }, 400);
+          setTimeout(() => { if (hint.parentNode) hint.parentNode.removeChild(hint); }, 800);
+          setTimeout(() => {
+            uiBar.style.opacity = '';
+            uiBar.style.pointerEvents = '';
+          }, 3000);
+        });
+      }
     } else {
       // 视频（不太会走到这里，但保留兜底）
       this._showSavePreview(blob, false);
@@ -1263,17 +1330,31 @@ class CaptureManager {
 
     const overlay = document.createElement('div');
     overlay.id = 'save-preview-overlay';
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.95);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;';
+    overlay.style.cssText = [
+      'position:fixed', 'inset:0', 'z-index:99999',
+      'background:rgba(0,0,0,0.95)',
+      'display:flex', 'flex-direction:column', 'align-items:stretch',
+      'padding-top:max(16px, env(safe-area-inset-top, 0px))',
+      'padding-bottom:env(safe-area-inset-bottom, 0px)'
+    ].join(';');
 
     // blob URL 用于视频播放和下载按钮
     let blobUrl = null;
 
     if (isImage) {
       // 图片：用 base64 Data URL，安卓 WebView 才支持长按保存
+      // 布局：图片区 flex:1 居中自适应 + UI 区在下方，不相互重叠
       overlay.innerHTML = `
-        <p style="color:#fff;font-size:14px;margin-bottom:16px;text-align:center;line-height:1.7;opacity:0.85;">长按图片保存到相册</p>
-        <img style="max-width:92%;max-height:70vh;border-radius:8px;object-fit:contain;touch-action:auto;-webkit-touch-callout:default;-webkit-user-select:auto;user-select:auto;" />
-        <button class="save-preview-close" style="margin-top:24px;padding:12px 48px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:25px;font-size:15px;">关闭</button>
+        <div class="save-img-wrap" style="flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;padding:8px 12px;">
+          <img style="max-width:100%;max-height:100%;border-radius:8px;object-fit:contain;touch-action:auto;-webkit-touch-callout:default;-webkit-user-select:auto;user-select:auto;display:block;" />
+        </div>
+        <div class="save-ui-bar" data-capture-hide="1" style="flex:0 0 auto;padding:14px 16px 18px;text-align:center;transition:opacity .2s ease;">
+          <p style="color:rgba(255,255,255,0.9);font-size:14px;margin:0 0 10px;line-height:1.6;">长按图片保存到相册</p>
+          <div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap;">
+            <button class="save-preview-clean" style="padding:10px 22px;background:rgba(255,255,255,0.18);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:22px;font-size:14px;">纯净截屏</button>
+            <button class="save-preview-close" style="padding:10px 22px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:22px;font-size:14px;">关闭</button>
+          </div>
+        </div>
       `;
       document.body.appendChild(overlay);
 
@@ -1283,11 +1364,35 @@ class CaptureManager {
         overlay.querySelector('img').src = reader.result;
       };
       reader.readAsDataURL(blob);
+
+      // 纯净截屏：隐藏 UI 条 3 秒，期间用户可以自由截屏，截完 UI 条自动恢复
+      const cleanBtn = overlay.querySelector('.save-preview-clean');
+      const uiBar = overlay.querySelector('.save-ui-bar');
+      if (cleanBtn && uiBar) {
+        cleanBtn.addEventListener('click', () => {
+          uiBar.style.opacity = '0';
+          uiBar.style.pointerEvents = 'none';
+          const hint = document.createElement('div');
+          hint.textContent = '现在截屏';
+          hint.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);color:rgba(255,255,255,0.85);font-size:15px;background:rgba(0,0,0,0.5);padding:8px 18px;border-radius:20px;z-index:1000000;pointer-events:none;transition:opacity .3s ease;';
+          overlay.appendChild(hint);
+          setTimeout(() => { hint.style.opacity = '0'; }, 400);
+          setTimeout(() => { if (hint.parentNode) hint.parentNode.removeChild(hint); }, 800);
+          setTimeout(() => {
+            uiBar.style.opacity = '';
+            uiBar.style.pointerEvents = '';
+          }, 3000);
+        });
+      }
     } else {
       // 视频：播放预览 + 下载按钮 + 长按提示
       blobUrl = URL.createObjectURL(blob);
       const ext = (blob.type || '').includes('webm') ? 'webm' : 'mp4';
       const filename = 'petals_' + Date.now() + '.' + ext;
+      // 视频布局也恢复居中 flex（保留原行为）
+      overlay.style.justifyContent = 'center';
+      overlay.style.alignItems = 'center';
+      overlay.style.padding = '20px';
       overlay.innerHTML = `
         <video style="max-width:92%;max-height:50vh;border-radius:8px;background:#000;touch-action:auto;" autoplay loop playsinline webkit-playsinline controls></video>
         <div style="display:flex;gap:12px;margin-top:20px;">
