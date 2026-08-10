@@ -6,11 +6,19 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
-  <title>五一花开地图｜从北到南，一路繁花</title>
-  <meta property="og:title" content="五一花开地图｜从北到南，一路繁花">
-  <meta property="og:description" content="跟着春风的脚步，看遍中国从北到南的绝美花海">
-  <meta property="og:image" content="">
-  <meta property="og:url" content="">
+  <title>春正好，花不误丨各地五一赏花地图</title>
+  <meta name="description" content="从北到南，全国花情已更新。你的城市哪里花开正好？">
+  <meta property="og:title" content="春正好，花不误丨各地五一赏花地图">
+  <meta property="og:description" content="从北到南，全国花情已更新。你的城市哪里花开正好？">
+  <meta property="og:image" content="https://mat1.gtimg.com/qqcdn/redian/tou-xiang--hua-shuo.png">
+  <meta property="og:url" content="https://h5.news.qq.com/qqfile/redian/flower_map.html">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="腾讯新闻·画说">
+  <meta itemprop="name" content="春正好，花不误丨各地五一赏花地图">
+  <meta itemprop="description" content="从北到南，全国花情已更新。你的城市哪里花开正好？">
+  <meta itemprop="image" content="https://mat1.gtimg.com/qqcdn/redian/tou-xiang--hua-shuo.png">
+  <link rel="image_src" href="https://mat1.gtimg.com/qqcdn/redian/tou-xiang--hua-shuo.png">
+  <link rel="icon" type="image/png" href="https://mat1.gtimg.com/qqcdn/redian/tou-xiang--hua-shuo.png">
   <meta name="theme-color" content="#fdf6e3" id="theme-color-meta">
   <!-- 破缓存：微信 WebView 会强缓存 html/js，以 URL 粒度为单位；
        无参数进入时自动追加 ?_t=时间戳 替换当前地址（不产生历史记录），
@@ -29,6 +37,25 @@
   })();
   </script>
   <link rel="stylesheet" href="style.css">
+
+  <!-- 分享能力：腾讯新闻App / 微信 / QQ -->
+  <!-- 1) 引入腾讯新闻 JSAPI SDK（仅在腾讯新闻App内使用，其它环境会静默失败） -->
+  <script src="https://mat1.gtimg.com/qqcdn/tnewsh5/jsapi/1.3.8/qqnews-jsapi.min.js"></script>
+  <!-- 2) 引入分享逻辑封装 -->
+  <script src="share.js"></script>
+  <!-- 3) 配置分享内容（DOMContentLoaded 时调用） -->
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      if (typeof window.setShare !== 'function') return;
+      window.setShare({
+        title: '春正好，花不误丨各地五一赏花地图',
+        longTitle: '春正好，花不误丨各地五一赏花地图',
+        desc: '从北到南，全国花情已更新。你的城市哪里花开正好？',
+        imgUrl: 'https://mat1.gtimg.com/qqcdn/redian/tou-xiang--hua-shuo.png',
+        link: 'https://h5.news.qq.com/qqfile/redian/flower_map.html'
+      });
+    });
+  </script>
 </head>
 <body>
   <!-- 开屏页（花瓣雨风格） -->
@@ -47,7 +74,7 @@
     </div>
     <!-- 内容层 -->
     <div class="intro-content">
-      <img class="intro-logo" src="https://mat1.gtimg.com/qqcdn/redian/petals_fall/logo1.png" alt="局部地区有花雨">
+      <img class="intro-logo" src="chunzhenghao1.png" alt="前方有花，请左右观看">
       <p class="intro-desc">从北到南，花都开了<br>一键解锁你的五一赏花地图</p>
       <button id="btn-enter" class="btn-enter">一键开花</button>
     </div>
@@ -295,7 +322,7 @@
         <label class="guide-agreement" id="guide-agreement">
           <input type="checkbox" id="guide-agree-checkbox">
           <span class="agreement-checkmark"></span>
-          <span class="agreement-text">我已阅读并同意<a href="javascript:void(0)" onclick="event.stopPropagation();showAgreementModal('user')">《用户协议》</a>和<a href="javascript:void(0)" onclick="event.stopPropagation();showAgreementModal('privacy')">《隐私政策》</a></span>
+          <span class="agreement-text">我已阅读并同意<a href="javascript:void(0)" onclick="event.stopPropagation();showAgreementModal('user')">《功能协议》</a></span>
         </label>
         <button id="btn-petal-rain" class="btn-petal-rain" disabled>开启花雨</button>
         <p class="guide-tip">需要授权摄像头和陀螺仪权限</p>
@@ -427,58 +454,74 @@
   <!-- 灯塔数据埋点（花开地图独立 activityId: flower_map） -->
   <script src="report.js"></script>
 
-  <!-- 用户协议弹窗 -->
+  <!-- 背景音乐（Breath of C）+ 右下角播放/暂停按钮 -->
+  <script src="bgm.js"></script>
+
+  <!-- 功能协议弹窗 -->
   <div id="agreement-modal-user" class="agreement-modal" onclick="if(event.target===this)hideAgreementModal('user')">
     <div class="agreement-modal-body">
       <div class="agreement-modal-header">
-        <h2>用户协议</h2>
+        <h2>功能协议</h2>
         <button class="agreement-modal-close" onclick="hideAgreementModal('user')">&times;</button>
       </div>
       <div class="agreement-modal-content">
-        <h4>1. 协议确认</h4>
+        <h4>1. 前言</h4>
         <p>欢迎使用「局部地区有花雨」AR 沉浸花瓣体验服务（以下简称"本服务"）。本服务由深圳市腾讯计算机系统有限公司（以下简称"我们"）提供。</p>
         <p>在您勾选同意并点击"开启花雨"前，请务必仔细阅读本协议。您勾选同意即视为已阅读、理解并接受本协议的全部内容。</p>
+
         <h4>2. 服务内容</h4>
         <p>本服务是一款基于 Web 技术的 AR 互动体验页面，主要功能包括：</p>
         <ul>
           <li>通过设备摄像头捕捉实时画面，将虚拟花瓣雨叠加到真实场景中；</li>
           <li>通过设备陀螺仪/加速度计感应设备方向和运动，实现 360° 环绕花瓣效果；</li>
-          <li>通过浏览器端 AI 模型识别人物轮廓，实现花瓣与人物的遮挡互动效果；</li>
-          <li>提供拍照和录像功能，将 AR 效果保存为图片或视频。</li>
+          <li>提供拍照和录像功能，将 AR 效果保存为图片或视频至您的本地设备。</li>
         </ul>
-        <h4>3. 权限使用</h4>
-        <p>本服务需要您授权以下设备权限，且仅在您主动授权后才会启用：</p>
-        <p><strong>摄像头：</strong>用于捕捉实时画面作为 AR 背景。所有画面仅在设备本地实时处理，不会上传至任何服务器。</p>
-        <p><strong>陀螺仪/加速度计：</strong>用于检测设备方向和运动，实现花瓣随设备转动的效果。</p>
-        <h4>4. 知识产权</h4>
-        <p>本服务中的所有内容（包括但不限于页面设计、花瓣纹理素材、代码、文案等）的知识产权归我们所有，受法律保护。</p>
-        <h4>5. 免责声明</h4>
-        <p>本服务按"现状"提供。我们不对因网络状况、设备兼容性或浏览器限制导致的体验异常承担责任。</p>
-        <h4>6. 联系我们</h4>
-        <p>邮箱：Dataprivacy@tencent.com</p>
-      </div>
-    </div>
-  </div>
+        <p>您理解并同意，为保障上述功能实现，您需要授权本页面调用设备的摄像头及陀螺仪/加速度计传感器。</p>
 
-  <!-- 隐私政策弹窗 -->
-  <div id="agreement-modal-privacy" class="agreement-modal" onclick="if(event.target===this)hideAgreementModal('privacy')">
-    <div class="agreement-modal-body">
-      <div class="agreement-modal-header">
-        <h2>隐私政策</h2>
-        <button class="agreement-modal-close" onclick="hideAgreementModal('privacy')">&times;</button>
-      </div>
-      <div class="agreement-modal-content">
-        <p>我们（深圳市腾讯计算机系统有限公司）深知个人信息的重要性，并严格遵循合法、正当、必要原则保护您的隐私。</p>
-        <div class="agreement-highlight"><strong>核心承诺：</strong>本服务的摄像头画面、陀螺仪数据、人体轮廓识别及拍摄内容均在您的设备本地处理，<strong>不会被上传至任何服务器</strong>。</div>
-        <h4>1. 我们收集和使用的信息</h4>
-        <p><strong>摄像头权限：</strong>捕捉实时画面作为 AR 背景。所有画面数据仅在浏览器内实时处理和渲染，不会被录制、存储或上传。关闭页面后自动清除。</p>
-        <p><strong>陀螺仪/加速度计：</strong>检测设备方向实现花瓣随动。数据仅用于实时计算，不存储。</p>
-        <h4>2. 信息存储与安全</h4>
-        <p>本服务不设任何服务器端数据存储。所有数据处理均在您的设备浏览器内完成。</p>
-        <h4>3. 您的权利</h4>
-        <p>您随时可通过浏览器或系统设置关闭摄像头和传感器授权。关闭页面后所有数据自动清除。</p>
-        <h4>4. 联系我们</h4>
-        <p>邮箱：Dataprivacy@tencent.com</p>
+        <h4>3. 使用规则</h4>
+        <p>3.1 您承诺使用本服务时遵守相关法律法规及公序良俗，不得利用本服务从事任何违法违规活动。</p>
+        <p>3.2 您理解本服务依赖于浏览器环境、设备硬件性能及网络状况，我们无法保证在所有设备和浏览器上均能完美运行。因设备兼容性、浏览器限制或网络问题导致的体验差异，不属于服务故障。</p>
+        <p>3.3 本服务会根据您的设备性能自动调整渲染效果（如花瓣数量、特效级别），以保障流畅运行。</p>
+        <p>3.4 我们保留因业务调整、技术维护或其他合理原因暂停、变更或终止服务的权利。</p>
+
+        <h4>4. 个人信息处理</h4>
+        <p><strong>4.1 我们收集和使用的信息</strong></p>
+        <p>为实现 AR 互动体验的核心功能，我们会请求以下设备权限：</p>
+
+        <h5>4.1.1 摄像头权限与画面数据</h5>
+        <p><strong>用途：</strong>捕捉实时画面作为 AR 背景，将虚拟花瓣雨叠加到真实场景中。</p>
+        <p><strong>处理方式：</strong>所有画面数据仅在您当前浏览器页面内实时处理和渲染，不会被录制、存储或上传至任何服务器。关闭页面后，摄像头将自动停止，所有画面数据随即清除。</p>
+
+        <h5>4.1.2 陀螺仪与加速度计数据</h5>
+        <p><strong>用途：</strong>检测设备的朝向和运动，实现 360° 环绕花瓣雨效果及运动视差。</p>
+        <p><strong>处理方式：</strong>传感器数据仅用于本地实时计算花瓣的运动方向，不会关联您的个人身份，不会被记录或上传至服务器。</p>
+
+        <h5>4.1.3 拍照与录像</h5>
+        <p><strong>用途：</strong>您可以在体验过程中主动拍摄照片或录制短视频，将 AR 花瓣雨效果保存为图片或视频文件。</p>
+        <p><strong>处理方式：</strong>拍摄内容完全在您的设备本地合成和生成，直接保存到您的设备中。我们不会收集、上传或存储您拍摄的任何内容。您对拍摄内容的后续使用和分享由您自行决定和负责。</p>
+
+        <p>若您拒绝授权摄像头或陀螺仪权限，将无法使用 AR 互动体验的核心功能，但页面仍会提供静态背景下的花瓣雨效果。</p>
+
+        <p><strong>4.2</strong> 摄像头画面、传感器数据及人体轮廓识别结果均为实时处理后即丢弃，我们不会在任何服务器上存储这些数据。</p>
+        <p><strong>4.3 授权撤回：</strong>您随时可通过浏览器设置或手机系统设置，关闭对本页面的摄像头和传感器授权。</p>
+
+        <h4>5. 免责声明</h4>
+        <p>5.1 本服务按"现状"提供，我们不对服务的持续性、稳定性或无错误运行作出任何明示或暗示的保证。</p>
+        <p>5.2 因不可抗力（包括但不限于网络中断、设备故障、操作系统或浏览器更新导致的兼容性变化）引起的服务中断或功能异常，我们不承担赔偿责任。</p>
+        <p>5.3 您使用拍照/录像功能所生成的内容由您自行管理和负责，我们不对其后续使用承担任何责任。</p>
+
+        <h4>6. 知识产权</h4>
+        <p>本服务中涉及的所有内容，包括但不限于页面设计、品牌标识、视觉素材、视频、代码及交互方案，其知识产权均归我们或相关权利人所有。未经书面授权，您不得以任何形式复制、修改、传播或用于商业用途。</p>
+
+        <h4>7. 协议变更</h4>
+        <p>我们可能根据业务需要适时修订本协议。修订后的协议将在本页面发布，您继续使用本服务即视为接受修订后的协议。</p>
+
+        <h4>8. 适用法律与争议解决</h4>
+        <p>本协议的订立、执行和解释均适用中华人民共和国大陆地区法律（不含冲突法规则）。因本协议引起的任何争议，双方应友好协商解决；协商不成的，任何一方可向被告所在地有管辖权的人民法院提起诉讼。</p>
+
+        <h4>9. 联系我们</h4>
+        <p>如您对本协议有任何疑问或建议，请通过以下方式联系我们：</p>
+        <p>打开【腾讯新闻APP】—【我的】—【常用功能】—【帮助反馈】</p>
       </div>
     </div>
   </div>

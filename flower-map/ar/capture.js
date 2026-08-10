@@ -3,7 +3,7 @@
  * 将摄像头画面 + 花瓣各层合成到离屏 canvas，支持截图保存和视频录制
  */
 // 版本标识，用于排查线上是否加载了最新版本（出现在 console 和 window 上）
-window.__CAPTURE_VERSION__ = 'v2026-04-22-clean-save';
+window.__CAPTURE_VERSION__ = 'v2026-04-22-align-petalsfall';
 console.log('[CaptureManager] version:', window.__CAPTURE_VERSION__);
 
 class CaptureManager {
@@ -720,10 +720,6 @@ class CaptureManager {
   _showPhotoPreview(blob, filename) {
     const imgUrl = URL.createObjectURL(blob);
 
-    // 检测是否为安卓微信个人版
-    const env = this._detectEnv();
-    const isAndroidWechat = env.isAndroidLike && env.isWxPersonal;
-
     // 清理之前的预览
     const oldOverlay = document.getElementById('photo-preview-overlay');
     if (oldOverlay) oldOverlay.remove();
@@ -732,20 +728,12 @@ class CaptureManager {
     overlay.id = 'photo-preview-overlay';
     overlay.className = 'photo-preview-overlay';
 
-    // 安卓微信：「全屏查看」按钮 + 提示文案；其他环境：「保存」按钮
-    const saveBtnHtml = isAndroidWechat
-      ? `<button class="photo-preview-btn photo-preview-btn-primary" id="photo-preview-save">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>
-          <span>全屏查看</span>
-        </button>`
-      : `<button class="photo-preview-btn photo-preview-btn-primary" id="photo-preview-save">
+    // 统一「保存」按钮，所有环境走同一路径（_savePhoto → _saveMedia，微信内走 _showScreenshotSave）
+    // 对齐花瓣雨 H5 的保存行为
+    const saveBtnHtml = `<button class="photo-preview-btn photo-preview-btn-primary" id="photo-preview-save">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           <span>保存</span>
         </button>`;
-
-    const hintHtml = isAndroidWechat
-      ? `<p class="photo-preview-hint" style="color:rgba(255,255,255,0.5);font-size:11px;text-align:center;margin:8px 0 0;line-height:1.6;">受系统限制暂不支持直接保存，请截屏或从浏览器打开</p>`
-      : '';
 
     overlay.innerHTML = `
       <div class="photo-preview-frame">
@@ -758,7 +746,6 @@ class CaptureManager {
         </button>
         ${saveBtnHtml}
       </div>
-      ${hintHtml}
     `;
     document.body.appendChild(overlay);
 
@@ -789,18 +776,12 @@ class CaptureManager {
     overlay.querySelector('#photo-preview-retake').addEventListener('click', retakeHandler);
     overlay.querySelector('#photo-preview-retake').addEventListener('touchend', retakeHandler);
 
-    // 保存/全屏查看（click + touchend 双绑）
+    // 保存（click + touchend 双绑）
     let saveDone = false;
     const saveHandler = (e) => {
       e.stopPropagation();
       if (saveDone) return; saveDone = true;
-      if (isAndroidWechat) {
-        // 安卓微信：全屏查看图片（纯净模式，触摸关闭）
-        this._showFullscreenImage(blob);
-        cleanup();
-      } else {
-        this._savePhoto(blob, filename, cleanup);
-      }
+      this._savePhoto(blob, filename, cleanup);
     };
     overlay.querySelector('#photo-preview-save').addEventListener('click', saveHandler);
     overlay.querySelector('#photo-preview-save').addEventListener('touchend', saveHandler);
@@ -900,26 +881,75 @@ class CaptureManager {
       return;
     }
 
+    // === 企业微信（wxwork）===
+    // iOS 17+ 企业微信支持 navigator.share(files)，优先尝试；失败或安卓企业微信则走截屏兜底
+    if (env.isWxWork) {
+      if (!env.isAndroidLike) {
+        try {
+          const file = new File([blob], filename, { type: mimeType });
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            let shareSettled = false;
+            const shareTimeout = setTimeout(() => {
+              if (!shareSettled) {
+                shareSettled = true;
+                console.warn('[保存] 企业微信 share 超时，降级截屏兜底');
+                this._saveInWechat(blob, filename, isImage, done);
+              }
+            }, 30000);
+            navigator.share({ files: [file] }).then(() => {
+              if (shareSettled) return;
+              shareSettled = true;
+              clearTimeout(shareTimeout);
+              this._showToast('已保存');
+              done();
+            }).catch((err) => {
+              if (shareSettled) return;
+              shareSettled = true;
+              clearTimeout(shareTimeout);
+              if (err && err.name === 'AbortError') {
+                done(); // 用户取消
+              } else {
+                // iOS 企业微信 share 不支持 / 失败 → 走截屏兜底
+                this._saveInWechat(blob, filename, isImage, done);
+              }
+            });
+            return;
+          }
+        } catch (e) { /* 不支持 → 截屏兜底 */ }
+      }
+      // 安卓/鸿蒙企业微信，或 iOS share 不可用 → 截屏兜底
+      this._saveInWechat(blob, filename, isImage, done);
+      return;
+    }
+
     // === Android / 鸿蒙 腾讯新闻App / QQ / QQ浏览器：尝试 <a download>，失败弹预览 ===
     if (env.isAndroidLike && (env.isQQNews || env.isQQ || env.isQQBrowser || env.isTBS)) {
       this._saveInAndroidWebView(blob, filename, isImage, done);
       return;
     }
 
-    // Windows 桌面端 和 微信环境 跳过 navigator.share
-    if (!env.isWindows && !env.isWxPersonal && !env.isWxWork) {
+    // === 鸿蒙原生浏览器（非微信、非 QQ/新闻 壳）===
+    // 鸿蒙浏览器 navigator.share 经常返回 NotAllowedError，直接走 <a download> 更稳
+    if (env.isHarmony && !env.isWxPersonal && !env.isWxWork) {
+      this._fallbackSave(blob, filename, isImage, done);
+      return;
+    }
+
+    // === 通用：navigator.share（iOS Safari / Android Chrome / Mac 等）===
+    // Windows 桌面端跳过 share（无意义），微信已在上面提前处理
+    if (!env.isWindows) {
       try {
         const file = new File([blob], filename, { type: mimeType });
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
           let shareSettled = false;
-          // 超时保护：5 秒无响应则 fallback
+          // 超时放宽到 30s：share 是用户级操作，5s 不够用户选渠道
           const shareTimeout = setTimeout(() => {
             if (!shareSettled) {
               shareSettled = true;
-              console.warn('[保存] navigator.share 超时 5s，降级');
+              console.warn('[保存] navigator.share 超时 30s，降级');
               this._fallbackSave(blob, filename, isImage, done);
             }
-          }, 5000);
+          }, 30000);
           navigator.share({ files: [file] }).then(() => {
             if (shareSettled) return;
             shareSettled = true;
@@ -946,16 +976,23 @@ class CaptureManager {
   }
 
   /**
-   * Android 微信个人版专用保存
-   * 图片：WeixinJSBridge.invoke('imagePreview') → 微信原生图片预览器 → 用户可直接长按保存到相册
-   * 视频：弹预览 + 下载按钮（微信对视频无原生保存接口）
+   * 微信内保存（个人版 + 企业微信共用）
+   * - 安卓 / 鸿蒙：走 _showAndroidWechatSave（含"纯净截屏"按钮，更可靠）
+   * - iOS：走 _showScreenshotSave，并把 blob 转 data URL（iOS 微信对 data URL 长按支持较好）
+   * - 视频：暂只有"用浏览器打开"的引导（_showWechatVideoSave）
    */
   _saveInWechat(blob, filename, isImage, done) {
-    // 此方法会被 index.html 内联补丁覆盖
-    // 这里是 fallback：直接弹截屏保存界面
     const finish = () => { if (done) done(); };
+    const env = this._detectEnv();
     if (isImage) {
-      // iOS 微信对 blob URL 长按不能保存，必须先转 data URL
+      if (env.isAndroidLike) {
+        // 安卓/鸿蒙微信（个人版 + 企业微信）：长按 data URL 在多数版本失败，
+        // 直接弹含"纯净截屏"按钮的弹窗，用户可一键隐藏 UI 截屏
+        this._showAndroidWechatSave(blob);
+        finish();
+        return;
+      }
+      // iOS 微信：blob → data URL 长按保存更稳
       const reader = new FileReader();
       reader.onload = () => {
         this._showScreenshotSave(reader.result);
@@ -1043,7 +1080,7 @@ class CaptureManager {
 
     // 首次打开时给一个短暂 toast 提示用户"长按保存"，1.6s 自动消失（不会入画）
     const toast = document.createElement('div');
-    toast.textContent = '长按图片可保存到相册';
+    toast.textContent = '长按图片保存，或截屏到相册';
     toast.style.cssText = [
       'position:absolute',
       'top:calc(14px + env(safe-area-inset-top, 0px))',
@@ -1070,6 +1107,89 @@ class CaptureManager {
     const doClose = () => {
       overlay.remove();
       if (needRevoke) URL.revokeObjectURL(imgSrc);
+    };
+    closeBtn.addEventListener('click', doClose);
+    closeBtn.addEventListener('touchend', (e) => { e.preventDefault(); doClose(); });
+  }
+
+  /**
+   * 安卓微信专用保存界面（XWEB/X5 内核禁止长按保存 & <a download>）
+   * 布局：
+   *   - 图片居中展示
+   *   - 中部明显的"微信限制"提示条
+   *   - 底部按钮：「纯净截屏」（隐藏 UI 方便截图）/「复制地址」/「关闭」
+   * @param {Blob} blob
+   */
+  _showAndroidWechatSave(blob) {
+    const old = document.getElementById('poster-overlay-wx');
+    if (old) old.remove();
+
+    const imgSrc = URL.createObjectURL(blob);
+
+    const overlay = document.createElement('div');
+    overlay.id = 'poster-overlay-wx';
+    overlay.style.cssText = [
+      'position:fixed', 'inset:0', 'z-index:999999',
+      'background:#000',
+      'display:flex', 'flex-direction:column', 'align-items:stretch',
+      'padding-top:max(12px, env(safe-area-inset-top, 0px))',
+      'padding-bottom:max(12px, env(safe-area-inset-bottom, 0px))'
+    ].join(';');
+
+    // 图片区（flex: 1 自适应，不受底部 UI 挤压）
+    const imgWrap = document.createElement('div');
+    imgWrap.className = 'awx-img-wrap';
+    imgWrap.style.cssText = 'flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;padding:0 12px;';
+    const img = document.createElement('img');
+    img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;display:block;border-radius:10px;';
+    img.src = imgSrc;
+    imgWrap.appendChild(img);
+    overlay.appendChild(imgWrap);
+
+    // 底部 UI 区（提示 + 按钮）
+    const uiBar = document.createElement('div');
+    uiBar.className = 'awx-ui-bar';
+    uiBar.style.cssText = 'flex:0 0 auto;padding:16px 16px 8px;text-align:center;transition:opacity .2s ease;';
+    uiBar.innerHTML = `
+      <div style="background:rgba(255,200,50,0.12);border:1px solid rgba(255,200,50,0.35);border-radius:12px;padding:10px 14px;margin:0 auto 12px;max-width:360px;">
+        <p style="color:#ffd43b;font-size:13px;margin:0;line-height:1.7;font-weight:500;">
+          微信限制无法直接保存图片
+        </p>
+        <p style="color:rgba(255,255,255,0.75);font-size:12px;margin:4px 0 0;line-height:1.7;">
+          请 <b style="color:#fff;">截屏</b> 或点右上角 <span style="font-size:15px;vertical-align:-1px;">···</span> → <b style="color:#fff;">用浏览器打开</b>
+        </p>
+      </div>
+      <div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap;">
+        <button class="awx-clean-btn" style="padding:10px 22px;background:rgba(255,255,255,0.92);color:#222;border:none;border-radius:22px;font-size:14px;font-weight:500;cursor:pointer;">纯净截屏</button>
+        <button class="awx-close-btn" style="padding:10px 22px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.28);border-radius:22px;font-size:14px;cursor:pointer;">关闭</button>
+      </div>
+    `;
+    overlay.appendChild(uiBar);
+
+    document.body.appendChild(overlay);
+
+    const cleanBtn = uiBar.querySelector('.awx-clean-btn');
+    const closeBtn = uiBar.querySelector('.awx-close-btn');
+
+    // 纯净截屏：隐藏 UI 条 3 秒，期间用户可自由截屏
+    cleanBtn.addEventListener('click', () => {
+      uiBar.style.opacity = '0';
+      uiBar.style.pointerEvents = 'none';
+      const hint = document.createElement('div');
+      hint.textContent = '现在截屏';
+      hint.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);color:rgba(255,255,255,0.9);font-size:15px;background:rgba(0,0,0,0.5);padding:8px 18px;border-radius:20px;z-index:1000000;pointer-events:none;transition:opacity .3s ease;';
+      overlay.appendChild(hint);
+      setTimeout(() => { hint.style.opacity = '0'; }, 500);
+      setTimeout(() => { if (hint.parentNode) hint.parentNode.removeChild(hint); }, 900);
+      setTimeout(() => {
+        uiBar.style.opacity = '';
+        uiBar.style.pointerEvents = '';
+      }, 3000);
+    });
+
+    const doClose = () => {
+      overlay.remove();
+      URL.revokeObjectURL(imgSrc);
     };
     closeBtn.addEventListener('click', doClose);
     closeBtn.addEventListener('touchend', (e) => { e.preventDefault(); doClose(); });

@@ -65,6 +65,32 @@
     setupScrollDownBtn();
     setupPetalRainGuideOnBottom();
     setupMapHint();
+    setupOverflowWatchdog();
+  }
+
+  // ==========================================
+  // 滚动锁定看门狗：防止浮层/AR 状态泄漏导致页面无法滚动
+  // 每秒巡检一次：若浮层已关、AR 未激活，但 body/html 仍处于 overflow:hidden，
+  // 强制恢复，避免用户陷入"页面卡死"状态。
+  // ==========================================
+  function setupOverflowWatchdog() {
+    setInterval(function() {
+      // AR 模式激活时，body 锁定 overflow 是合法的，跳过
+      var arScene = document.getElementById('ar-scene');
+      var arActive = arScene && !arScene.classList.contains('hidden');
+      if (arActive) return;
+
+      // 浮层正常打开中，跳过
+      if (state._overlayOpen) return;
+
+      // 走到这里说明：既不是 AR、浮层也已关闭，body 不应该被锁
+      var bodyLocked = document.body.style.overflow === 'hidden';
+      var htmlLocked = document.documentElement.style.overflow === 'hidden';
+      if (bodyLocked || htmlLocked) {
+        document.documentElement.style.overflow = '';
+        document.body.style.overflow = '';
+      }
+    }, 1000);
   }
 
   // ==========================================
@@ -695,7 +721,8 @@
     CITIES.forEach(function(city, idx) {
       var cx = cityXPercents[idx]; // 百分比
       var cy = cityTops[idx] + flowerCenterY;
-      var petalCount = (idx === 6) ? 5 : 7; // 凤凰木花瓣少一些
+      // 加密：让相邻城市花瓣区自然衔接，消除"真空带"
+      var petalCount = (idx === 6) ? 12 : 16; // 凤凰木略少
 
       for (var i = 0; i < petalCount; i++) {
         var el = document.createElement('img');
@@ -703,14 +730,17 @@
         el.className = 'static-petal';
         el.setAttribute('data-city-index', idx);
 
-        // 花瓣散布在花朵周围，偏下方（模拟飘落后留存）
-        var angle = (Math.PI * 2 / petalCount) * i + (Math.random() - 0.5) * 0.8;
-        var dist = 40 + Math.random() * 60;
+        // 弥散分布：随机角度 + 距离按 sqrt 分布（中近多、远处少，但远处也有）
+        var angle = Math.random() * Math.PI * 2;
+        var dist = 30 + Math.pow(Math.random(), 0.6) * 220; // 30~250px
         var offsetX = Math.cos(angle) * dist;
-        var offsetY = Math.sin(angle) * dist + 20 + Math.random() * 30; // 偏下
-        var size = 14 + Math.random() * 18;
+        // 自然下垂：越远越偏下（模拟重力飘落），消除"上沿截断感"
+        var offsetY = Math.sin(angle) * dist + dist * 0.35 + (Math.random() - 0.3) * 20;
+        var size = 12 + Math.random() * 20;
         var rotation = Math.random() * 360;
-        var opacity = 0.12 + Math.random() * 0.12;
+        // 远处花瓣略淡，近处略浓，过渡更自然
+        var distFactor = 1 - (dist / 250) * 0.4;
+        var opacity = (0.10 + Math.random() * 0.14) * distFactor;
 
         // 用百分比 X + 像素偏移（保证响应式）
         el.style.cssText =
@@ -719,7 +749,8 @@
           'width:' + size + 'px;height:' + size + 'px;' +
           'opacity:0;' +
           'transform:rotate(' + rotation + 'deg);' +
-          'transition:opacity 1.5s ease ' + (0.5 + Math.random() * 1.5) + 's;';
+          'transition:opacity 1.5s ease ' + (0.5 + Math.random() * 1.8) + 's;';
+        el.setAttribute('data-opacity', opacity.toFixed(3));
 
         container.appendChild(el);
       }
@@ -730,10 +761,8 @@
   function showStaticPetals(cityIndex) {
     var petals = document.querySelectorAll('.static-petal[data-city-index="' + cityIndex + '"]');
     for (var i = 0; i < petals.length; i++) {
-      petals[i].style.opacity = petals[i].getAttribute('data-opacity') || '';
-      // 直接设置最终 opacity（transition 在 CSS 中已定义）
-      var finalOpacity = 0.12 + Math.random() * 0.12;
-      petals[i].style.opacity = finalOpacity;
+      var target = parseFloat(petals[i].getAttribute('data-opacity')) || (0.12 + Math.random() * 0.12);
+      petals[i].style.opacity = target;
     }
   }
 
@@ -878,35 +907,142 @@
       // 0: 哈尔滨·丁香
       '<p>十九世纪末，中东铁路的汽笛声穿越西伯利亚的冻土，俄侨们随身携带的，除了伏特加与套娃，还有一捧丁香的种子。彼时他们或许未曾想到，这株来自异乡的灌木，会在百余年后成为一座城市的魂魄——1988年，丁香被正式确定为哈尔滨市花。</p>' +
       '<p>五月的哈尔滨，整座城浸在淡紫色的雾气里。群力丁香公园占地43万平方米，汇集32种丁香品种，被冠以"中国丁香第一园"之名。清晨七点，晨雾未散，园中少有游人，唯有花香在空气中低语。而若想寻一份更私密的浪漫，兆麟公园内那株树龄逾百的暴马丁香值得专程造访。本地人更偏爱哈工大校园，在学术的肃穆与花香的柔软之间，找到某种奇妙的平衡。</p>' +
-      '<p class="spot-quote">李商隐写"芭蕉不展丁香结，同向春风各自愁"，将丁香与愁绪永久地绑定在一起。戴望舒在《雨巷》里更进一步，让"一个丁香一样的，结着愁怨的姑娘"成为现代诗最动人的意象之一。</p>',
+      '<p class="spot-quote">李商隐写"芭蕉不展丁香结，同向春风各自愁"，将丁香与愁绪永久地绑定在一起。戴望舒在《雨巷》里更进一步，让"一个丁香一样的，结着愁怨的姑娘"成为现代诗最动人的意象之一。</p>' +
+      '<span class="spot-subtitle">同款花事</span>' +
+      '<p class="spot-subintro">若你不在哈尔滨，在下列地点依然能寻得丁香的盛放踪迹。</p>' +
+      '<ul class="spot-list">' +
+        '<li><strong>辽宁沈阳</strong>故宫后花园、仰熙斋、北陵公园</li>' +
+        '<li><strong>北京</strong>八达岭国家森林公园暴马丁香5月正盛、天坛6300㎡丁香林</li>' +
+        '<li><strong>山东青岛</strong>世博园、鱼山路老城区</li>' +
+      '</ul>' +
+      '<span class="spot-subtitle">锦上添花</span>' +
+      '<p class="spot-subintro">五一期间，哈尔滨花事不止一种。</p>' +
+      '<ul class="spot-list">' +
+        '<li><strong>山杏花</strong>群力第六大道、和兴路粉色长廊</li>' +
+        '<li><strong>山梨花</strong>道外区古梨园，5月上旬盛期</li>' +
+      '</ul>',
       // 1: 北京·芍药
       '<p>在圆明园含经堂遗址，芍药的盛放像是一场关于时间的隐喻。这片两万余平方米的观赏区，曾见证康雍乾三代帝王的赏花佳话。如今断壁残垣犹在，芍药年年如约绽放，娇艳与沧桑在同一个画面里并置，构成一种难以言说的张力。</p>' +
       '<p>《红楼梦》第六十二回，"憨湘云醉眠芍药裀"是全书最美的画面之一——湘云醉卧青石板凳，芍药花瓣落了一身，蜂蝶围绕，香梦沉酣。芍药在《诗经》中被称为"将离草"，是古人临别时相赠的信物，花语中藏着惜别与深情。</p>' +
-      '<p class="spot-quote">五月上旬是含经堂芍药的盛花期。建议上午九点前抵达，彼时花瓣上尚有晨露，光线柔和而不刺眼。</p>',
+      '<p class="spot-quote">五月上旬是含经堂芍药的盛花期。建议上午九点前抵达，彼时花瓣上尚有晨露，光线柔和而不刺眼。</p>' +
+      '<span class="spot-subtitle">同款花事</span>' +
+      '<p class="spot-subintro">若你不在北京，在下列地点依然能寻得芍药的盛放踪迹。</p>' +
+      '<ul class="spot-list">' +
+        '<li><strong>江苏扬州</strong>瘦西湖风景区</li>' +
+        '<li><strong>安徽亳州</strong>亳药花海休闲观光大世界，五一最佳观赏期</li>' +
+      '</ul>' +
+      '<span class="spot-subtitle">锦上添花</span>' +
+      '<p class="spot-subintro">五一期间，北京花事不止一种。</p>' +
+      '<ul class="spot-list">' +
+        '<li><strong>月季</strong>国家植物园月季园</li>' +
+        '<li><strong>鸢尾</strong>国家植物园100余品种</li>' +
+        '<li><strong>晚开牡丹</strong>景山公园</li>' +
+      '</ul>',
       // 2: 洛阳·牡丹
       '<p>洛阳牡丹，始于隋，盛于唐，甲天下于宋。刘禹锡那句"唯有牡丹真国色，花开时节动京城"，奠定了它在中国花卉史上不可动摇的地位。欧阳修在洛阳任职期间写下《洛阳牡丹记》，这是中国第一部牡丹专著，"姚黄魏紫"的典故由此流传。</p>' +
       '<p>五一假期对洛阳而言，其实已是牡丹花季的尾声。但国际牡丹园以晚开品种和异域品种著称，此时仍有花可观；国家牡丹园则保留了最原始的牡丹基因，若想看到牡丹最本真的样貌，此处是必往之地。下午三点后入园是本地人的共识——光线柔和，花瓣在逆光中呈现半透明的质感。</p>' +
-      '<p class="spot-quote">唐制汉服与牡丹是天然的搭配。在隋唐城遗址植物园的亭台与月亮门前取景，长焦镜头压缩背景，便能避开人潮，留下一帧盛唐气象。</p>',
+      '<p class="spot-quote">唐制汉服与牡丹是天然的搭配。在隋唐城遗址植物园的亭台与月亮门前取景，长焦镜头压缩背景，便能避开人潮，留下一帧盛唐气象。</p>' +
+      '<span class="spot-subtitle">同款花事</span>' +
+      '<p class="spot-subintro">若你不在洛阳，在下列地点依然能寻得牡丹的盛放踪迹。</p>' +
+      '<ul class="spot-list">' +
+        '<li><strong>山东菏泽</strong>曹州牡丹园，晚花品种"绿幕隐玉"正盛</li>' +
+        '<li><strong>四川彭州</strong>丹景山，"彭州紫"持续至5月5日</li>' +
+      '</ul>' +
+      '<span class="spot-subtitle">锦上添花</span>' +
+      '<p class="spot-subintro">五一期间，洛阳花事不止一种。</p>' +
+      '<ul class="spot-list">' +
+        '<li><strong>芍药</strong>国际牡丹园"百万芍药游园会"</li>' +
+        '<li><strong>月季</strong>隋唐城遗址植物园</li>' +
+      '</ul>',
       // 3: 武汉·蔷薇
       '<p>晴川阁得名于崔颢的"晴川历历汉阳树"，而在它不远处的晴川桥下，藏着武汉春末最壮观的秘密。江汉大楼停车场周边，蔷薇三面环绕，据称有160万株之众，形成一道绵延百米的粉色瀑布。这是本地人私藏的赏花点——从地铁拦江路站B口出来，沿汉阳江滩向大桥方向步行，便能找到这面花墙。</p>' +
       '<p>高骈在《山亭夏日》中写道："水晶帘动微风起，满架蔷薇一院香。"那是属于庭院的小情小景。而晴川桥下的蔷薇，以一种近乎汹涌的姿态，将古诗中的幽香放大成视觉的冲击。</p>' +
-      '<p class="spot-quote">傍晚五六点是最佳的拍摄时段，斜阳将花墙染成暖粉色，若能捕捉到蔷薇与橘红色鹦鹉洲大桥的同框画面，便是一张足以定义武汉初夏的照片。</p>',
+      '<p class="spot-quote">傍晚五六点是最佳的拍摄时段，斜阳将花墙染成暖粉色，若能捕捉到蔷薇与橘红色鹦鹉洲大桥的同框画面，便是一张足以定义武汉初夏的照片。</p>' +
+      '<span class="spot-subtitle">同款花事</span>' +
+      '<p class="spot-subintro">若你不在武汉，在下列地点依然能寻得蔷薇的盛放踪迹。</p>' +
+      '<ul class="spot-list">' +
+        '<li><strong>江苏南京</strong>颐和路、老门东、南京眼花墙瀑布</li>' +
+        '<li><strong>江苏苏州</strong>苏州大学天赐庄校区钟楼花墙</li>' +
+        '<li><strong>山东青岛</strong>八大关</li>' +
+        '<li><strong>天津</strong>五大道</li>' +
+      '</ul>' +
+      '<span class="spot-subtitle">锦上添花</span>' +
+      '<p class="spot-subintro">五一期间，武汉花事不止一种。</p>' +
+      '<ul class="spot-list">' +
+        '<li><strong>绣球花</strong>武汉植物园8000㎡"无尽夏"花海</li>' +
+        '<li><strong>虞美人</strong>汉江湾花田，花期至6月</li>' +
+      '</ul>',
       // 4: 长沙·杜鹃
       '<p>关于大围山杜鹃的起源，当地流传着一个浪漫的传说：七仙女下凡在天星湖沐浴，临别时将身上的彩带抛向山间，化作了漫山遍野的杜鹃花海。传说之外，这片10万亩的原生态野生杜鹃花海，是华中地区规模最大的观赏胜地。</p>' +
       '<p>2026年的杜鹃花季预计从4月23日持续至5月5日，五一假期恰逢尾声，却也正是云海与花海交汇的最佳时节。七星岭观景台是拍摄全景的绝佳机位，当云雾从山谷翻涌而上，万亩杜鹃在云端若隐若现，那种壮阔足以让人忘记来时三小时山路的颠簸。</p>' +
-      '<p class="spot-quote">白居易曾赞杜鹃为"花中此物似西施"，认为芍药在它面前都显得逊色。着素色衣衫入画，是与这片红色花海相处的最佳方式。</p>',
+      '<p class="spot-quote">白居易曾赞杜鹃为"花中此物似西施"，认为芍药在它面前都显得逊色。着素色衣衫入画，是与这片红色花海相处的最佳方式。</p>' +
+      '<span class="spot-subtitle">同款花事</span>' +
+      '<p class="spot-subintro">若你不在长沙，在下列地点依然能寻得杜鹃的盛放踪迹。</p>' +
+      '<ul class="spot-list">' +
+        '<li><strong>湖北麻城</strong>龟峰山（4月下旬至5月中旬最佳）</li>' +
+        '<li><strong>山东青岛</strong>大珠山映山红</li>' +
+        '<li><strong>江西井冈山</strong>江西坳景区</li>' +
+        '<li><strong>湖北神农架</strong>大九湖景区</li>' +
+      '</ul>' +
+      '<span class="spot-subtitle">锦上添花</span>' +
+      '<p class="spot-subintro">五一期间，长沙花事不止一种。</p>' +
+      '<ul class="spot-list">' +
+        '<li><strong>月季 / 玫瑰</strong>望城普瑞酒店100亩花海</li>' +
+        '<li><strong>月见草</strong>橘子洲</li>' +
+      '</ul>',
       // 5: 婺源·紫藤
       '<p>篁岭是一座有着500多年历史的徽州古村，因地势陡峭，被称为"梯云人家"。五一时节，油菜花期早已结束，而天街上的紫藤长廊正进入盛花期，紫色的花穗垂落在粉墙黛瓦间，像一道道从天而降的瀑布。</p>' +
       '<p>李白的《紫藤树》是中国最早的紫藤诗："紫藤挂云木，花蔓宜阳春。"在古代文人的意象谱系中，紫藤象征"紫气东来"，是脱俗精神的寄托。篁岭将这份古意与徽派建筑的素雅结合，构成一幅流动的水墨画。</p>' +
-      '<p class="spot-quote">沿天街漫步，可以顺道探访"一店一品"的非遗手作；思溪延村的老巷子人流更少，紫藤攀附在斑驳的门楣上，与青石板路相映成趣。</p>',
+      '<p class="spot-quote">沿天街漫步，可以顺道探访"一店一品"的非遗手作；思溪延村的老巷子人流更少，紫藤攀附在斑驳的门楣上，与青石板路相映成趣。</p>' +
+      '<span class="spot-subtitle">同款花事</span>' +
+      '<p class="spot-subintro">若你不在婺源，在下列地点依然能寻得紫藤的盛放踪迹。</p>' +
+      '<ul class="spot-list">' +
+        '<li><strong>上海</strong>嘉定紫藤园世界级景观、南水关公园</li>' +
+        '<li><strong>浙江杭州</strong>花圃、花港观鱼</li>' +
+        '<li><strong>江苏无锡</strong>拈花湾</li>' +
+      '</ul>' +
+      '<span class="spot-subtitle">锦上添花</span>' +
+      '<p class="spot-subintro">五一期间，婺源花事不止一种。</p>' +
+      '<ul class="spot-list">' +
+        '<li><strong>三角梅</strong>篁岭鲜花小镇</li>' +
+        '<li><strong>月季</strong>篁岭景区</li>' +
+        '<li><strong class="no-colon">绣球花</strong></li>' +
+      '</ul>',
       // 6: 广州·凤凰木
       '<p>海印桥南侧的扶梯旁，一棵凤凰木已经矗立了四十余年。因为生长位置特殊，它的花蕊几乎触手可及，成为广州街坊口耳相传的"网红"。凤凰木的名字来自它的形态——"叶如飞凰之羽，花若丹凤之冠"，是岭南夏季最浓烈的色彩。</p>' +
       '<p>五月中下旬是凤凰木的盛花期。站在海印桥的楼梯上，火红的花冠在珠江的背景下燃烧，这是属于广州的"花城"时刻。天河公园内还有一片蓝花楹与凤凰木比邻的区域，红蓝同框，是近年流行的打卡构图。</p>' +
-      '<p class="spot-quote">林清玄曾写道："想起凤凰花，遂想起平生未尽的志事。"下午三点至五点的逆光位是摄影的最佳时段，阳光穿透花瓣边缘，形成一圈金色的轮廓。</p>',
+      '<p class="spot-quote">林清玄曾写道："想起凤凰花，遂想起平生未尽的志事。"下午三点至五点的逆光位是摄影的最佳时段，阳光穿透花瓣边缘，形成一圈金色的轮廓。</p>' +
+      '<span class="spot-subtitle">同款花事</span>' +
+      '<p class="spot-subintro">若你不在广州，在下列地点依然能寻得凤凰木的盛放踪迹。</p>' +
+      '<ul class="spot-list">' +
+        '<li><strong>福建厦门</strong>植物园荷花池周边</li>' +
+        '<li><strong>广东深圳</strong>华英路、莲花山</li>' +
+        '<li><strong>海南海口</strong>滨海大道、万绿园（五一多为初花期，盛花需等5月中下旬）</li>' +
+      '</ul>' +
+      '<span class="spot-subtitle">锦上添花</span>' +
+      '<p class="spot-subintro">五一期间，广州花事不止一种。</p>' +
+      '<ul class="spot-list">' +
+        '<li><strong>蓝花楹</strong>天河公园、部分路段紫色花海</li>' +
+        '<li><strong>荷花</strong>烈士陵园、荔湾湖公园5月初绽</li>' +
+      '</ul>',
       // 7: 三亚·三角梅
       '<p>1872年，三角梅首次从南美洲被引入中国。一百余年后的1995年，它被定为三亚市花，成为这座热带滨海城市的性格注脚。在三亚，三角梅不择季节地绽放，以一种近乎执拗的热烈，诠释着坚韧与奔放。</p>' +
       '<p>2024年建成的三角梅科博园紧邻两千年历史的崖州古城，收集了全球约500个品种，几乎占据了已知三角梅品种的半壁江山。园内48米高的"迎宾塔"是俯瞰花海的最佳视角，而若想捕捉三角梅与大海同框的画面，傍晚的椰梦长廊是不二之选。</p>' +
-      '<p class="spot-quote">西岛渔村是另一处值得探访的所在。老墙上爬满三角梅，斑驳的石灰与炽烈的花色形成对照，藏着渔村数十年的时光故事。</p>'
+      '<p class="spot-quote">西岛渔村是另一处值得探访的所在。老墙上爬满三角梅，斑驳的石灰与炽烈的花色形成对照，藏着渔村数十年的时光故事。</p>' +
+      '<span class="spot-subtitle">同款花事</span>' +
+      '<p class="spot-subintro">若你不在三亚，在下列地点依然能寻得三角梅的盛放踪迹。</p>' +
+      '<ul class="spot-list">' +
+        '<li><strong>广东深圳</strong>园博园匯芳园10米花瀑、华英路景观公园</li>' +
+        '<li><strong>福建厦门</strong>集美大社、梅海岭</li>' +
+        '<li><strong>湖北武汉</strong>沙湖公园五一花展</li>' +
+      '</ul>' +
+      '<span class="spot-subtitle">锦上添花</span>' +
+      '<p class="spot-subintro">五一期间，三亚花事不止一种。</p>' +
+      '<ul class="spot-list">' +
+        '<li><strong>鸡蛋花</strong>各度假区常年盛放</li>' +
+        '<li><strong>紫檀花</strong>亚龙湾热带天堂森林公园</li>' +
+        '<li><strong>玉蕊花</strong>蜈支洲岛夜间观赏</li>' +
+      '</ul>'
     ];
 
     // 花事详情浮层：点击 city-card 弹出
@@ -936,50 +1072,27 @@
         spotOverlay.offsetHeight;
         spotOverlay.classList.add('visible');
         state._overlayOpen = true;
-        // 锁定背后滚动（html + body 同时设置，兼容 iOS）
-        document.documentElement.style.overflow = 'hidden';
-        document.body.style.overflow = 'hidden';
-        // 注册 touchmove 拦截（仅浮层打开时生效）
-        document.addEventListener('touchmove', _overlayTouchHandler, { passive: false });
-        document.addEventListener('touchstart', _overlayTouchStartHandler, { passive: true });
+        // 锁定背后滚动：记录当前 scrollY，给 body 加 overlay-locked，
+        // 用 top 偏移让视觉位置不变。完全不依赖 touchmove 拦截，
+        // 避免 iOS 上 passive:false 监听器残留导致主页滚动卡顿。
+        state._lockedScrollY = window.scrollY || window.pageYOffset || 0;
+        document.body.style.top = '-' + state._lockedScrollY + 'px';
+        document.body.classList.add('overlay-locked');
       });
     });
 
-    // document 级 touchmove 拦截（仅浮层打开时注册，关闭时移除，避免阻塞正常滚动）
-    var _overlayTouchHandler = function(e) {
-      var spotBody = spotOverlay.querySelector('.spot-body');
-      // 允许 .spot-body 内部滚动
-      if (spotBody && spotBody.contains(e.target)) {
-        // 边界拦截：在顶部/底部时阻止穿透
-        var atTop = spotBody.scrollTop <= 0;
-        var atBottom = spotBody.scrollTop + spotBody.clientHeight >= spotBody.scrollHeight - 1;
-        if (!spotBody._lastTouchY) spotBody._lastTouchY = e.touches[0].clientY;
-        var deltaY = spotBody._lastTouchY - e.touches[0].clientY;
-        spotBody._lastTouchY = e.touches[0].clientY;
-        if ((atTop && deltaY < 0) || (atBottom && deltaY > 0)) {
-          e.preventDefault();
-        }
-        return;
-      }
-      // 其他所有区域一律阻止
-      e.preventDefault();
-    };
-    var _overlayTouchStartHandler = function(e) {
-      var spotBody = spotOverlay.querySelector('.spot-body');
-      if (spotBody) spotBody._lastTouchY = e.touches[0].clientY;
-    };
-
-    // 关闭浮层
+    // 关闭浮层：解除 body.overlay-locked 并恢复 scrollY
     function closeSpotOverlay() {
       spotOverlay.classList.remove('visible');
       state._overlayOpen = false;
-      // 移除 touchmove 拦截，恢复正常滚动性能
-      document.removeEventListener('touchmove', _overlayTouchHandler);
-      document.removeEventListener('touchstart', _overlayTouchStartHandler);
-      // 恢复滚动（不动 position，零跳动）
-      document.documentElement.style.overflow = '';
-      document.body.style.overflow = '';
-      setTimeout(function() { spotOverlay.style.display = 'none'; }, 300);
+      var y = state._lockedScrollY || 0;
+      document.body.classList.remove('overlay-locked');
+      document.body.style.top = '';
+      // 恢复滚动位置（瞬时跳回，无感）
+      window.scrollTo(0, y);
+      setTimeout(function() {
+        spotOverlay.style.display = 'none';
+      }, 300);
     }
     if (spotOverlay) {
       spotOverlay.querySelector('.spot-close').addEventListener('click', closeSpotOverlay);

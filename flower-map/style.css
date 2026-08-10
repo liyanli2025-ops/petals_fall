@@ -12,13 +12,13 @@
 /* 画说衬线体（思源宋体子集，仅含页面用字） */
 @font-face {
   font-family: 'HuaShuo Serif SC';
-  src: url('huashuo-serif-regular.woff2') format('woff2');
+  src: url('huashuo-serif-regular.v3.woff2') format('woff2');
   font-weight: 400;
   font-display: swap;
 }
 @font-face {
   font-family: 'HuaShuo Serif SC';
-  src: url('huashuo-serif-bold.woff2') format('woff2');
+  src: url('huashuo-serif-bold.v3.woff2') format('woff2');
   font-weight: 700;
   font-display: swap;
 }
@@ -156,35 +156,6 @@ body {
   animation: introFadeInUp 1.2s ease-out;
 }
 
-/* 柔雾层（暖色调） */
-.intro-content::before {
-  content: '';
-  position: absolute;
-  top: -30%;
-  left: -20%;
-  right: -20%;
-  bottom: -20%;
-  z-index: -1;
-  background: radial-gradient(
-    ellipse at 52% 55%,
-    rgba(253, 246, 227, 0.75) 0%,
-    rgba(253, 246, 227, 0.5) 35%,
-    rgba(253, 246, 227, 0.2) 65%,
-    transparent 100%
-  );
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  -webkit-mask-image: radial-gradient(ellipse at 50% 55%, black 20%, transparent 72%);
-  mask-image: radial-gradient(ellipse at 50% 55%, black 20%, transparent 72%);
-  pointer-events: none;
-  animation: introMistFadeIn 2s ease-out 0.6s both;
-}
-
-@keyframes introMistFadeIn {
-  0% { opacity: 0; backdrop-filter: blur(0px); -webkit-backdrop-filter: blur(0px); }
-  100% { opacity: 1; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
-}
-
 @keyframes introFadeInUp {
   from { opacity: 0; transform: translateY(30px); }
   to { opacity: 1; transform: translateY(0); }
@@ -193,11 +164,16 @@ body {
 /* Logo */
 .intro-logo {
   display: block;
-  width: 72vw;
-  max-width: 360px;
+  width: 86vw;
+  max-width: 440px;
   height: auto;
-  margin: 0 auto 1rem;
-  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.25)) drop-shadow(0 2px 8px rgba(0,0,0,0.15));
+  margin: 0 auto 1.2rem;
+  /* 近距深色软阴影（托清晰度）+ 中距暖棕扩散（保柔和）
+     两层配合：既能在花丛+天空高亮背景下立住，又不显黑勾边 */
+  filter:
+    drop-shadow(0 1px 2px rgba(50, 35, 22, 0.55))
+    drop-shadow(0 2px 5px rgba(50, 35, 22, 0.4))
+    drop-shadow(0 4px 12px rgba(90, 65, 45, 0.3));
   animation: introLogoFadeIn 1.6s cubic-bezier(0.23, 1, 0.32, 1) both;
   pointer-events: none;
 }
@@ -218,10 +194,17 @@ body {
 
 /* 描述文字 */
 .intro-desc {
-  font-size: 1rem;
-  color: #8a7a68;
+  font-size: 1.02rem;
+  color: #fff6e0;
   line-height: 1.8;
   margin-bottom: 2rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  /* 近距深色阴影（托清晰度）+ 暖棕扩散（保柔和）—— 不勾边不显硬 */
+  text-shadow:
+    0 1px 2px rgba(50, 35, 22, 0.75),
+    0 2px 4px rgba(50, 35, 22, 0.55),
+    0 0 8px rgba(90, 65, 45, 0.4);
 }
 
 /* 进入按钮 */
@@ -840,6 +823,8 @@ body {
   position: absolute;
   pointer-events: none;
   object-fit: contain;
+  /* 静态花瓣不影响外部布局/绘制，独立光栅化，滚动时零重绘开销 */
+  contain: layout paint;
 }
 
 /* ============================================
@@ -1489,7 +1474,7 @@ body {
   margin-top: 4px;
 }
 
-/* 用户协议勾选（花瓣雨引导区） */
+/* 功能协议勾选（花瓣雨引导区） */
 .guide-agreement {
   display: flex;
   align-items: flex-start;
@@ -1680,6 +1665,15 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* 浮层打开时锁住背景滚动（用 fixed + top 偏移，恢复后位置无跳动） */
+body.overlay-locked {
+  position: fixed;
+  left: 0;
+  right: 0;
+  width: 100%;
+  overflow: hidden;
+}
+
 .spot-overlay {
   position: fixed;
   inset: 0;
@@ -1704,7 +1698,7 @@ body {
   position: relative;
   width: 92%;
   max-width: 400px;
-  max-height: 82vh;
+  max-height: 70vh;
   background: linear-gradient(180deg, #fdf6e3 0%, #fef8ec 50%, #fbecd2 100%);
   border-radius: 16px;
   padding: 0;
@@ -1811,6 +1805,73 @@ body {
   margin-top: 6px;
 }
 
+/* 副栏目小标题：同款花事 / 锦上添花 */
+.spot-body .spot-subtitle {
+  display: block;
+  font-size: 0.92rem;
+  color: #a85544;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  margin: 22px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed rgba(212, 114, 92, 0.28);
+  text-align: left;
+}
+
+/* 副栏目摘要 */
+.spot-body .spot-subintro {
+  font-size: 0.85rem;
+  color: #7a6a58;
+  line-height: 1.8;
+  margin-bottom: 8px;
+  letter-spacing: 0.02em;
+}
+
+/* 副栏目列表：每行一条地点，左侧一个浅色小点 */
+.spot-body .spot-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.spot-body .spot-list li {
+  font-size: 0.86rem;
+  line-height: 1.85;
+  color: #5a4a3a;
+  padding-left: 14px;
+  position: relative;
+  margin-bottom: 4px;
+  letter-spacing: 0.02em;
+  text-align: justify;
+}
+
+.spot-body .spot-list li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0.85em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(212, 114, 92, 0.55);
+}
+
+.spot-body .spot-list li strong {
+  color: #8a5a48;
+  font-weight: 500;
+  margin-right: 4px;
+}
+
+.spot-body .spot-list li strong::after {
+  content: '：';
+  font-weight: 500;
+  margin-left: -2px;
+}
+
+.spot-body .spot-list li strong.no-colon::after {
+  content: '';
+}
+
 /* ==========================================
    地图页新手引导：半透明灰色蒙版 + 手指点击指引
    进入地图后短暂显示，指向哈尔滨圆点
@@ -1914,4 +1975,52 @@ body {
     opacity: 0;
     transform: translate(-50%, -50%) scale(1.7);
   }
+}
+
+/* ============ 背景音乐控制按钮 ============ */
+.bgm-toggle-btn {
+  position: fixed;
+  right: 16px;
+  bottom: 24px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: rgba(255, 255, 255, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 9999;
+  opacity: 0.75;
+  transition: opacity 0.2s ease, transform 0.15s ease, background 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.bgm-toggle-btn:hover { opacity: 1; background: rgba(0, 0, 0, 0.4); }
+.bgm-toggle-btn:active { transform: scale(0.9); opacity: 1; }
+.bgm-toggle-btn .bgm-icon { display: none; align-items: center; justify-content: center; }
+.bgm-toggle-btn.playing .bgm-icon-playing { display: inline-flex; }
+.bgm-toggle-btn.paused  .bgm-icon-paused  { display: inline-flex; }
+.bgm-toggle-btn .bgm-icon-playing {
+  gap: 2px;
+  height: 16px;
+}
+.bgm-toggle-btn .bgm-bar {
+  display: inline-block;
+  width: 3px;
+  height: 100%;
+  background: #fff;
+  border-radius: 2px;
+  transform-origin: center bottom;
+  animation: bgmBarWave 1s ease-in-out infinite;
+}
+.bgm-toggle-btn .bgm-bar:nth-child(2) { animation-delay: 0.2s; }
+.bgm-toggle-btn .bgm-bar:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bgmBarWave {
+  0%, 100% { transform: scaleY(0.3); }
+  50%      { transform: scaleY(1); }
 }
